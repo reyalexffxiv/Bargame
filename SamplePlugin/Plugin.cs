@@ -1,9 +1,12 @@
-﻿using Dalamud.Game.Command;
+using System.Text.RegularExpressions;
+using Dalamud.Game.Chat;
+using Dalamud.Game.Command;
 using Dalamud.IoC;
-using Dalamud.Plugin;
-using System.IO;
 using Dalamud.Interface.Windowing;
+using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
+using SamplePlugin.Models;
+using SamplePlugin.Services;
 using SamplePlugin.Windows;
 
 namespace SamplePlugin;
@@ -11,76 +14,192 @@ namespace SamplePlugin;
 public sealed class Plugin : IDalamudPlugin
 {
     [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
-    [PluginService] internal static ITextureProvider TextureProvider { get; private set; } = null!;
     [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
-    [PluginService] internal static IClientState ClientState { get; private set; } = null!;
-    [PluginService] internal static IPlayerState PlayerState { get; private set; } = null!;
-    [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
+    [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
 
-    private const string CommandName = "/pmycommand";
+    private const string CommandName = "/urban888";
 
-    public Configuration Configuration { get; init; }
+    private static readonly Regex FullRandomRollRegex = new(
+        @"^(?<name>.+?) rolls a (?<roll>\d+)\.",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    public readonly WindowSystem WindowSystem = new("SamplePlugin");
-    private ConfigWindow ConfigWindow { get; init; }
-    private MainWindow MainWindow { get; init; }
+    private static readonly Regex MessageOnlyRandomRollRegex = new(
+        @"^rolls a (?<roll>\d+)\.",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    public Configuration Configuration { get; }
+
+    public RaffleSession RaffleSession { get; }
+
+    public readonly WindowSystem WindowSystem = new("Urban888");
+
+    private ConfigWindow ConfigWindow { get; }
+    private MainWindow MainWindow { get; }
 
     public Plugin()
     {
-        Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        this.Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        this.Configuration.Initialize(PluginInterface);
 
-        // You might normally want to embed resources and load them from the manifest stream
-        var goatImagePath = Path.Combine(PluginInterface.AssemblyLocation.Directory?.FullName!, "goat.png");
+        this.RaffleSession = new RaffleSession(this.Configuration);
 
-        ConfigWindow = new ConfigWindow(this);
-        MainWindow = new MainWindow(this, goatImagePath);
+        this.ConfigWindow = new ConfigWindow(this);
+        this.MainWindow = new MainWindow(this);
 
-        WindowSystem.AddWindow(ConfigWindow);
-        WindowSystem.AddWindow(MainWindow);
+        this.WindowSystem.AddWindow(this.ConfigWindow);
+        this.WindowSystem.AddWindow(this.MainWindow);
 
-        CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
+        CommandManager.AddHandler(CommandName, new CommandInfo(this.OnCommand)
         {
-            HelpMessage = "A useful message to display in /xlhelp"
+            HelpMessage = "Open the Urban 888 raffle counter."
         });
 
-        // Tell the UI system that we want our windows to be drawn through the window system
-        PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
+        PluginInterface.UiBuilder.Draw += this.WindowSystem.Draw;
+        PluginInterface.UiBuilder.OpenConfigUi += this.ToggleConfigUi;
+        PluginInterface.UiBuilder.OpenMainUi += this.ToggleMainUi;
 
-        // This adds a button to the plugin installer entry of this plugin which allows
-        // toggling the display status of the configuration ui
-        PluginInterface.UiBuilder.OpenConfigUi += ToggleConfigUi;
+        ChatGui.ChatMessage += this.OnChatMessage;
 
-        // Adds another button doing the same but for the main ui of the plugin
-        PluginInterface.UiBuilder.OpenMainUi += ToggleMainUi;
-
-        // Add a simple message to the log with level set to information
-        // Use /xllog to open the log window in-game
-        // Example Output: 00:57:54.959 | INF | [SamplePlugin] ===A cool log message from Sample Plugin===
-        Log.Information($"===A cool log message from {PluginInterface.Manifest.Name}===");
+        Log.Information("Urban888 loaded.");
     }
 
     public void Dispose()
     {
-        // Unregister all actions to not leak anything during disposal of plugin
-        PluginInterface.UiBuilder.Draw -= WindowSystem.Draw;
-        PluginInterface.UiBuilder.OpenConfigUi -= ToggleConfigUi;
-        PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
-        
-        WindowSystem.RemoveAllWindows();
+        ChatGui.ChatMessage -= this.OnChatMessage;
 
-        ConfigWindow.Dispose();
-        MainWindow.Dispose();
+        PluginInterface.UiBuilder.Draw -= this.WindowSystem.Draw;
+        PluginInterface.UiBuilder.OpenConfigUi -= this.ToggleConfigUi;
+        PluginInterface.UiBuilder.OpenMainUi -= this.ToggleMainUi;
 
         CommandManager.RemoveHandler(CommandName);
+
+        this.WindowSystem.RemoveAllWindows();
+
+        this.ConfigWindow.Dispose();
+        this.MainWindow.Dispose();
     }
 
     private void OnCommand(string command, string args)
     {
-        // In response to the slash command, toggle the display status of our main ui
-        MainWindow.Toggle();
+        var trimmedArgs = args.Trim().ToLowerInvariant();
+
+        switch (trimmedArgs)
+        {
+            case "start":
+                this.StartRaffle();
+                break;
+
+            case "stop":
+                this.StopRaffle();
+                break;
+
+            case "reset":
+                this.ResetRaffle();
+                break;
+
+            case "status":
+                this.PrintStatus();
+                break;
+
+            default:
+                this.MainWindow.Toggle();
+                break;
+        }
     }
-    
-    public void ToggleConfigUi() => ConfigWindow.Toggle();
-    public void ToggleMainUi() => MainWindow.Toggle();
+
+    private void OnChatMessage(IHandleableChatMessage message)
+    {
+        var roll = this.TryParseRandomRoll(message);
+
+        if (roll is null)
+            return;
+
+        var result = this.RaffleSession.ProcessRoll(roll);
+
+        if (!result.WasCounted)
+        {
+            if (result.Reason == "The target player has no remaining rolls.")
+                ChatGui.PrintError($"[Urban888] {roll.PlayerName} has no remaining rolls.");
+
+            return;
+        }
+
+        if (result.IsWinner)
+        {
+            ChatGui.Print($"[Urban888] WINNER: {roll.PlayerName} rolled {roll.Value}!");
+            ChatGui.Print($"[Urban888] Final pot: {this.RaffleSession.TotalPot:N0} gil.");
+            ChatGui.Print($"[Urban888] Rolls used: {this.RaffleSession.UsedRolls}/{this.RaffleSession.PurchasedRolls}.");
+            return;
+        }
+
+        ChatGui.Print(
+            $"[Urban888] {roll.PlayerName} rolled {roll.Value}. " +
+            $"Remaining: {this.RaffleSession.RemainingRolls}. " +
+            $"Pot: {this.RaffleSession.TotalPot:N0} gil.");
+    }
+
+    private RollResult? TryParseRandomRoll(IHandleableChatMessage chatMessage)
+    {
+        var senderText = chatMessage.Sender.TextValue.Trim();
+        var messageText = chatMessage.Message.TextValue.Trim();
+
+        // Some chat messages contain the player name inside the message body:
+        // "Player Name rolls a 123."
+        var fullMatch = FullRandomRollRegex.Match(messageText);
+        if (fullMatch.Success && int.TryParse(fullMatch.Groups["roll"].Value, out var fullRoll))
+        {
+            return new RollResult(
+                fullMatch.Groups["name"].Value.Trim(),
+                fullRoll);
+        }
+
+        // Other messages may expose the player name through Sender and only
+        // contain "rolls a 123." in the message body. We support both formats.
+        var messageOnlyMatch = MessageOnlyRandomRollRegex.Match(messageText);
+        if (messageOnlyMatch.Success &&
+            !string.IsNullOrWhiteSpace(senderText) &&
+            int.TryParse(messageOnlyMatch.Groups["roll"].Value, out var messageOnlyRoll))
+        {
+            return new RollResult(senderText, messageOnlyRoll);
+        }
+
+        return null;
+    }
+
+    public void StartRaffle()
+    {
+        if (!this.RaffleSession.HasTargetPlayer)
+        {
+            ChatGui.PrintError("[Urban888] Set a target player before starting.");
+            this.MainWindow.IsOpen = true;
+            return;
+        }
+
+        this.RaffleSession.Start();
+        ChatGui.Print($"[Urban888] Counting started for {this.Configuration.TargetPlayerName}.");
+    }
+
+    public void StopRaffle()
+    {
+        this.RaffleSession.Stop();
+        ChatGui.Print("[Urban888] Counting stopped.");
+    }
+
+    public void ResetRaffle()
+    {
+        this.RaffleSession.Reset();
+        ChatGui.Print("[Urban888] Session reset.");
+    }
+
+    public void PrintStatus()
+    {
+        ChatGui.Print($"[Urban888] Target: {this.Configuration.TargetPlayerName}");
+        ChatGui.Print($"[Urban888] Rolls: {this.RaffleSession.UsedRolls}/{this.RaffleSession.PurchasedRolls}, Remaining: {this.RaffleSession.RemainingRolls}");
+        ChatGui.Print($"[Urban888] Pot: {this.RaffleSession.TotalPot:N0} gil, Sales: {this.RaffleSession.IncomingSales:N0} gil.");
+    }
+
+    public void ToggleConfigUi() => this.ConfigWindow.Toggle();
+
+    public void ToggleMainUi() => this.MainWindow.Toggle();
 }

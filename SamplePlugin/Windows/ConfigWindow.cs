@@ -1,59 +1,34 @@
-﻿using System;
-using System.Numerics;
+using System;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 
 namespace SamplePlugin.Windows;
 
-public class ConfigWindow : Window, IDisposable
+/// <summary>
+/// Lightweight config window.
+/// 
+/// The main raffle controls live in MainWindow. This window exists so the
+/// Dalamud plugin installer's config button has a clean destination.
+/// </summary>
+public sealed class ConfigWindow : Window, IDisposable
 {
-    private readonly Configuration configuration;
+    private readonly Plugin plugin;
 
-    // We give this window a constant ID using ###.
-    // This allows for labels to be dynamic, like "{FPS Counter}fps###XYZ counter window",
-    // and the window ID will always be "###XYZ counter window" for ImGui
-    public ConfigWindow(Plugin plugin) : base("A Wonderful Configuration Window###With a constant ID")
+    public ConfigWindow(Plugin plugin)
+        : base("Urban888 Settings###Urban888Config")
     {
-        Flags = ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar |
-                ImGuiWindowFlags.NoScrollWithMouse;
-
-        Size = new Vector2(232, 90);
-        SizeCondition = ImGuiCond.Always;
-
-        configuration = plugin.Configuration;
+        this.plugin = plugin;
     }
 
-    public void Dispose() { }
-
-    public override void PreDraw()
+    public void Dispose()
     {
-        // Flags must be added or removed before Draw() is being called, or they won't apply
-        if (configuration.IsConfigWindowMovable)
-        {
-            Flags &= ~ImGuiWindowFlags.NoMove;
-        }
-        else
-        {
-            Flags |= ImGuiWindowFlags.NoMove;
-        }
     }
 
     public override void Draw()
     {
-        // Can't ref a property, so use a local copy
-        var configValue = configuration.SomePropertyToBeSavedAndWithADefault;
-        if (ImGui.Checkbox("Random Config Bool", ref configValue))
-        {
-            configuration.SomePropertyToBeSavedAndWithADefault = configValue;
-            // Can save immediately on change if you don't want to provide a "Save and Close" button
-            configuration.Save();
-        }
+        ImGui.TextUnformatted("Urban888 settings are available in the main window.");
 
-        var movable = configuration.IsConfigWindowMovable;
-        if (ImGui.Checkbox("Movable Config Window", ref movable))
-        {
-            configuration.IsConfigWindowMovable = movable;
-            configuration.Save();
-        }
+        if (ImGui.Button("Open Main Window"))
+            this.plugin.ToggleMainUi();
     }
 }

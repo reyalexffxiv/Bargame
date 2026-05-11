@@ -1,122 +1,177 @@
-﻿using System;
-using System.Numerics;
+using System;
 using Dalamud.Bindings.ImGui;
-using Dalamud.Interface.Textures;
-using Dalamud.Interface.Utility;
-using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
-using Lumina.Excel.Sheets;
 
 namespace SamplePlugin.Windows;
 
-public class MainWindow : Window, IDisposable
+/// <summary>
+/// Main Urban888 raffle control panel.
+/// 
+/// This class is responsible for UI only. Raffle rules and calculations stay
+/// in RaffleSession so future developers can maintain the logic separately.
+/// </summary>
+public sealed class MainWindow : Window, IDisposable
 {
-    private readonly string goatImagePath;
     private readonly Plugin plugin;
 
-    // We give this window a hidden ID using ##.
-    // The user will see "My Amazing Window" as window title,
-    // but for ImGui the ID is "My Amazing Window##With a hidden ID"
-    public MainWindow(Plugin plugin, string goatImagePath)
-        : base("My Amazing Window##With a hidden ID", ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse)
+    public MainWindow(Plugin plugin)
+        : base("Urban888 Raffle Counter###Urban888Main")
     {
-        SizeConstraints = new WindowSizeConstraints
-        {
-            MinimumSize = new Vector2(375, 330),
-            MaximumSize = new Vector2(float.MaxValue, float.MaxValue)
-        };
-
-        this.goatImagePath = goatImagePath;
         this.plugin = plugin;
+        this.SizeConstraints = new WindowSizeConstraints
+        {
+            MinimumSize = new System.Numerics.Vector2(430, 420),
+            MaximumSize = new System.Numerics.Vector2(float.MaxValue, float.MaxValue)
+        };
     }
 
-    public void Dispose() { }
+    public void Dispose()
+    {
+    }
 
     public override void Draw()
     {
-        ImGui.Text($"The random config bool is {plugin.Configuration.SomePropertyToBeSavedAndWithADefault}");
+        var config = this.plugin.Configuration;
+        var session = this.plugin.RaffleSession;
 
-        if (ImGui.Button("Show Settings"))
-        {
-            plugin.ToggleConfigUi();
-        }
+        ImGui.TextUnformatted("Urban888 Raffle Counter");
+        ImGui.Separator();
 
-        ImGui.Spacing();
-
-        // Normally a BeginChild() would have to be followed by an unconditional EndChild(),
-        // ImRaii takes care of this after the scope ends.
-        // This works for all ImGui functions that require specific handling, examples are BeginTable() or Indent().
-        using (var child = ImRaii.Child("SomeChildWithAScrollbar", Vector2.Zero, true))
-        {
-            // Check if this child is drawing
-            if (child.Success)
+        this.DrawTextInput(
+            "Target Player",
+            config.TargetPlayerName,
+            value =>
             {
-                ImGui.Text("Have a goat:");
-                var goatImage = Plugin.TextureProvider.GetFromFile(goatImagePath).GetWrapOrDefault();
-                if (goatImage != null)
-                {
-                    using (ImRaii.PushIndent(55f))
-                    {
-                        ImGui.Image(goatImage.Handle, goatImage.Size);
-                    }
-                }
-                else
-                {
-                    ImGui.Text("Image not found.");
-                }
+                config.TargetPlayerName = value;
+                config.Save();
+            });
 
-                ImGuiHelpers.ScaledDummy(20.0f);
+        this.DrawLongInput(
+            "Base Pot",
+            config.BasePot,
+            value =>
+            {
+                config.BasePot = Math.Max(0, value);
+                config.Save();
+            });
 
-                // Example for other services that Dalamud provides.
-                // PlayerState provides a wrapper filled with information about the player character.
+        this.DrawLongInput(
+            "Price Per Roll",
+            config.PricePerRoll,
+            value =>
+            {
+                config.PricePerRoll = Math.Max(0, value);
+                config.Save();
+            });
 
-                var playerState = Plugin.PlayerState;
-                if (!playerState.IsLoaded)
-                {
-                    ImGui.Text("Our local player is currently not logged in.");
-                    return;
-                }
-                
-                if (!playerState.ClassJob.IsValid)
-                {
-                    ImGui.Text("Our current job is currently not valid.");
-                    return;
-                }
-                
-                ImGui.AlignTextToFramePadding();
-                ImGui.Text($"Current job:");
-                
-                // Scaling hardcoded pixel values is important, as otherwise users with HUD scales above or below 100%
-                // won't be able to see everything.
-                ImGui.SameLine(120 * ImGuiHelpers.GlobalScale);
-                
-                // Get the icon id from a known offset + the class jobs id
-                var jobIconId = 62100 + playerState.ClassJob.RowId;
-                var iconTexture = Plugin.TextureProvider.GetFromGameIcon(new GameIconLookup(jobIconId)).GetWrapOrEmpty();
-                ImGui.Image(iconTexture.Handle, new Vector2(28, 28) * ImGuiHelpers.GlobalScale);
-                
-                ImGui.SameLine();
-                
-                // If you want to see the Macro representation of this SeString use `.ToMacroString()`
-                // More info about SeStrings: https://dalamud.dev/plugin-development/sestring/
-                ImGui.Text(playerState.ClassJob.Value.Abbreviation.ToString());
-                
-                ImGui.SameLine();
-                ImGui.Text($" [Level {playerState.Level}]");
-                
-                // Example for querying Lumina, getting the name of our current area.
-                var territoryId = Plugin.ClientState.TerritoryType;
-                if (Plugin.DataManager.GetExcelSheet<TerritoryType>().TryGetRow(territoryId, out var territoryRow))
-                {
-                    ImGui.Text($"Current location:");
-                    ImGui.SameLine(120 * ImGuiHelpers.GlobalScale);
-                    ImGui.Text(territoryRow.PlaceName.Value.Name.ToString());
-                }
-                else
-                {
-                    ImGui.Text("Invalid territory.");
-                }
-            }
+        this.DrawIntInput(
+            "Winning Roll",
+            config.TargetRoll,
+            value =>
+            {
+                config.TargetRoll = Math.Max(1, value);
+                config.Save();
+            });
+
+        var countOnlyTarget = config.CountOnlyTargetPlayer;
+        if (ImGui.Checkbox("Only count target player's rolls", ref countOnlyTarget))
+        {
+            config.CountOnlyTargetPlayer = countOnlyTarget;
+            config.Save();
         }
+
+        var stopWhenWinnerFound = config.StopWhenWinnerFound;
+        if (ImGui.Checkbox("Stop when winner is found", ref stopWhenWinnerFound))
+        {
+            config.StopWhenWinnerFound = stopWhenWinnerFound;
+            config.Save();
+        }
+
+        ImGui.Separator();
+
+        ImGui.TextUnformatted($"Status: {(session.IsRunning ? "Running" : "Stopped")}");
+        ImGui.TextUnformatted($"Purchased Rolls: {session.PurchasedRolls}");
+        ImGui.TextUnformatted($"Used Rolls: {session.UsedRolls}");
+        ImGui.TextUnformatted($"Remaining Rolls: {session.RemainingRolls}");
+        ImGui.TextUnformatted($"Incoming Sales: {session.IncomingSales:N0} gil");
+        ImGui.TextUnformatted($"Total Pot: {session.TotalPot:N0} gil");
+
+        if (session.LastRoll is not null)
+            ImGui.TextUnformatted($"Last Roll: {session.LastRoll.PlayerName} rolled {session.LastRoll.Value}");
+
+        if (session.WinningRoll is not null)
+            ImGui.TextUnformatted($"Winner: {session.WinningRoll.PlayerName} rolled {session.WinningRoll.Value}");
+
+        ImGui.Separator();
+
+        if (ImGui.Button(session.IsRunning ? "Stop Counting" : "Start Counting"))
+        {
+            if (session.IsRunning)
+                this.plugin.StopRaffle();
+            else
+                this.plugin.StartRaffle();
+        }
+
+        ImGui.SameLine();
+
+        if (ImGui.Button("Reset Session"))
+            this.plugin.ResetRaffle();
+
+        ImGui.Separator();
+
+        if (ImGui.Button("+1 Roll Sale"))
+            session.AddPurchasedRolls(1);
+
+        ImGui.SameLine();
+
+        if (ImGui.Button("+5 Roll Sale"))
+            session.AddPurchasedRolls(5);
+
+        ImGui.SameLine();
+
+        if (ImGui.Button("+10 Roll Sale"))
+            session.AddPurchasedRolls(10);
+
+        if (ImGui.Button("-1 Roll Correction"))
+            session.RemovePurchasedRolls(1);
+
+        ImGui.SameLine();
+
+        if (ImGui.Button("-5 Roll Correction"))
+            session.RemovePurchasedRolls(5);
+
+        ImGui.Separator();
+
+        if (ImGui.Button("Print Status To Chat"))
+            this.plugin.PrintStatus();
+    }
+
+    private void DrawTextInput(string label, string currentValue, Action<string> onChanged)
+    {
+        var value = currentValue;
+
+        if (ImGui.InputText(label, ref value, 128))
+            onChanged(value);
+    }
+
+    private void DrawIntInput(string label, int currentValue, Action<int> onChanged)
+    {
+        var value = currentValue;
+
+        if (ImGui.InputInt(label, ref value))
+            onChanged(value);
+    }
+
+    private void DrawLongInput(string label, long currentValue, Action<long> onChanged)
+    {
+        // ImGuiNET is more comfortable with text input for long values.
+        // This also lets users paste values like 30000000 without spinner friction.
+        var valueText = currentValue.ToString();
+
+        if (!ImGui.InputText(label, ref valueText, 32))
+            return;
+
+        if (long.TryParse(valueText, out var parsedValue))
+            onChanged(parsedValue);
     }
 }
