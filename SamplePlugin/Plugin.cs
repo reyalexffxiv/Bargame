@@ -1,3 +1,4 @@
+using System;
 using System.Text.RegularExpressions;
 using Dalamud.Game.Chat;
 using Dalamud.Game.Command;
@@ -16,16 +17,30 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
     [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
+    [PluginService] internal static IObjectTable ObjectTable { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
 
     private const string CommandName = "/urban888";
 
+    /*
+     * FFXIV /random chat can appear in slightly different text forms depending
+     * on whether the roll is yours, another player's, or how Dalamud exposes
+     * the sender/message fields.
+     *
+     * We also allow non-digit characters between "a" and the roll number,
+     * because the game may display a dice icon there.
+     */
+
+    private static readonly Regex OwnRandomRollRegex = new(
+        @"^(?:Random!\s*)?You roll a\D*(?<roll>\d+)\.",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     private static readonly Regex FullRandomRollRegex = new(
-        @"^(?<name>.+?) rolls a (?<roll>\d+)\.",
+        @"^(?:Random!\s*)?(?<name>.+?) rolls a\D*(?<roll>\d+)\.",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static readonly Regex MessageOnlyRandomRollRegex = new(
-        @"^rolls a (?<roll>\d+)\.",
+        @"^(?:Random!\s*)?rolls a\D*(?<roll>\d+)\.",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public Configuration Configuration { get; }
@@ -35,6 +50,7 @@ public sealed class Plugin : IDalamudPlugin
     public readonly WindowSystem WindowSystem = new("Urban888");
 
     private ConfigWindow ConfigWindow { get; }
+
     private MainWindow MainWindow { get; }
 
     public Plugin()
@@ -144,8 +160,29 @@ public sealed class Plugin : IDalamudPlugin
         var senderText = chatMessage.Sender.TextValue.Trim();
         var messageText = chatMessage.Message.TextValue.Trim();
 
-        // Some chat messages contain the player name inside the message body:
-        // "Player Name rolls a 123."
+        /*
+         * Own rolls usually appear as:
+         * "Random! You roll a 897."
+         *
+         * In that case, the player's name is not inside the message body,
+         * so we use the local player name from IObjectTable.
+         */
+        var ownRollMatch = OwnRandomRollRegex.Match(messageText);
+        if (ownRollMatch.Success && int.TryParse(ownRollMatch.Groups["roll"].Value, out var ownRoll))
+        {
+            var localPlayerName = this.GetLocalPlayerName();
+
+            if (string.IsNullOrWhiteSpace(localPlayerName))
+                localPlayerName = this.Configuration.TargetPlayerName;
+
+            return new RollResult(localPlayerName, ownRoll);
+        }
+
+        /*
+         * Other player rolls may appear as:
+         * "First Last rolls a 123."
+         * "First Last @ Server rolls a 123."
+         */
         var fullMatch = FullRandomRollRegex.Match(messageText);
         if (fullMatch.Success && int.TryParse(fullMatch.Groups["roll"].Value, out var fullRoll))
         {
@@ -154,8 +191,10 @@ public sealed class Plugin : IDalamudPlugin
                 fullRoll);
         }
 
-        // Other messages may expose the player name through Sender and only
-        // contain "rolls a 123." in the message body. We support both formats.
+        /*
+         * Some chat events expose the player name through Sender and only
+         * place "rolls a 123." in the message body.
+         */
         var messageOnlyMatch = MessageOnlyRandomRollRegex.Match(messageText);
         if (messageOnlyMatch.Success &&
             !string.IsNullOrWhiteSpace(senderText) &&
@@ -165,6 +204,19 @@ public sealed class Plugin : IDalamudPlugin
         }
 
         return null;
+    }
+
+    private string GetLocalPlayerName()
+    {
+        try
+        {
+            return ObjectTable.LocalPlayer?.Name.TextValue.Trim() ?? string.Empty;
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Could not read local player name.");
+            return string.Empty;
+        }
     }
 
     public void StartRaffle()

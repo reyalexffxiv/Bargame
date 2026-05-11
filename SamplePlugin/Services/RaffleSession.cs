@@ -109,12 +109,22 @@ public sealed class RaffleSession
 
     /// <summary>
     /// Checks whether a player name from chat matches the configured target.
+    /// 
+    /// FFXIV chat may display names as:
+    /// "First Last"
+    /// or
+    /// "First Last @ Server"
+    /// 
+    /// We normalize both sides before comparison so users can type either form.
     /// </summary>
     public bool IsTargetPlayer(string playerName)
     {
+        var normalizedRollPlayer = NormalizePlayerName(playerName);
+        var normalizedTargetPlayer = NormalizePlayerName(this.configuration.TargetPlayerName);
+
         return string.Equals(
-            playerName.Trim(),
-            this.configuration.TargetPlayerName.Trim(),
+            normalizedRollPlayer,
+            normalizedTargetPlayer,
             StringComparison.OrdinalIgnoreCase);
     }
 
@@ -160,6 +170,26 @@ public sealed class RaffleSession
         }
 
         return RaffleRollProcessResult.Counted();
+    }
+
+    /// <summary>
+    /// Normalizes player names for comparison.
+    /// 
+    /// This strips the optional world/server suffix after "@":
+    /// "Rey Alex @ Phantom" becomes "Rey Alex".
+    /// </summary>
+    private static string NormalizePlayerName(string playerName)
+    {
+        if (string.IsNullOrWhiteSpace(playerName))
+            return string.Empty;
+
+        var trimmed = playerName.Trim();
+
+        var atIndex = trimmed.IndexOf('@');
+        if (atIndex >= 0)
+            trimmed = trimmed[..atIndex].Trim();
+
+        return trimmed;
     }
 }
 
