@@ -134,18 +134,19 @@ public sealed class Plugin : IDalamudPlugin
         var result = this.RaffleSession.ProcessRoll(roll);
 
         if (!result.WasCounted)
-        {
-            if (result.Reason == "The target player has no remaining rolls.")
-                ChatGui.PrintError($"[Urban888] {roll.PlayerName} has no remaining rolls.");
-
             return;
-        }
 
         if (result.IsWinner)
         {
             ChatGui.Print($"[Urban888] WINNER: {roll.PlayerName} rolled {roll.Value}!");
             ChatGui.Print($"[Urban888] Final pot: {this.RaffleSession.TotalPot:N0} gil.");
             ChatGui.Print($"[Urban888] Rolls used: {this.RaffleSession.UsedRolls}/{this.RaffleSession.PurchasedRolls}.");
+            return;
+        }
+
+        if (result.RollsEnded)
+        {
+            ChatGui.Print($"[Urban888] {roll.PlayerName} rolls ended.");
             return;
         }
 
@@ -224,6 +225,13 @@ public sealed class Plugin : IDalamudPlugin
         if (!this.RaffleSession.HasTargetPlayer)
         {
             ChatGui.PrintError("[Urban888] Set a target player before starting.");
+            this.MainWindow.IsOpen = true;
+            return;
+        }
+
+        if (this.RaffleSession.RemainingRolls <= 0)
+        {
+            ChatGui.PrintError("[Urban888] Add roll sales before starting.");
             this.MainWindow.IsOpen = true;
             return;
         }

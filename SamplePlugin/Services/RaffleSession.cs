@@ -105,6 +105,9 @@ public sealed class RaffleSession
 
         var salesToRemove = this.configuration.PricePerRoll * removableRolls;
         this.IncomingSales = Math.Max(0, this.IncomingSales - salesToRemove);
+
+        if (this.RemainingRolls <= 0 && this.PurchasedRolls > 0)
+            this.Stop();
     }
 
     /// <summary>
@@ -151,7 +154,7 @@ public sealed class RaffleSession
             if (this.RemainingRolls <= 0)
             {
                 this.Stop();
-                return RaffleRollProcessResult.Ignored("The target player has no remaining rolls.");
+                return RaffleRollProcessResult.RollLimitReached();
             }
 
             this.UsedRolls++;
@@ -167,6 +170,15 @@ public sealed class RaffleSession
                 this.Stop();
 
             return RaffleRollProcessResult.Winner();
+        }
+
+        // If the target player just consumed their final paid roll, stop immediately.
+        // This prevents extra /random rolls from being counted after the purchased
+        // attempts are exhausted.
+        if (isTargetPlayer && this.RemainingRolls <= 0)
+        {
+            this.Stop();
+            return RaffleRollProcessResult.RollLimitReached();
         }
 
         return RaffleRollProcessResult.Counted();
@@ -198,10 +210,11 @@ public sealed class RaffleSession
 /// </summary>
 public sealed class RaffleRollProcessResult
 {
-    private RaffleRollProcessResult(bool wasCounted, bool isWinner, string? reason)
+    private RaffleRollProcessResult(bool wasCounted, bool isWinner, bool rollsEnded, string? reason)
     {
         this.WasCounted = wasCounted;
         this.IsWinner = isWinner;
+        this.RollsEnded = rollsEnded;
         this.Reason = reason;
     }
 
@@ -209,20 +222,27 @@ public sealed class RaffleRollProcessResult
 
     public bool IsWinner { get; }
 
+    public bool RollsEnded { get; }
+
     public string? Reason { get; }
 
     public static RaffleRollProcessResult Counted()
     {
-        return new RaffleRollProcessResult(true, false, null);
+        return new RaffleRollProcessResult(true, false, false, null);
     }
 
     public static RaffleRollProcessResult Winner()
     {
-        return new RaffleRollProcessResult(true, true, null);
+        return new RaffleRollProcessResult(true, true, false, null);
+    }
+
+    public static RaffleRollProcessResult RollLimitReached()
+    {
+        return new RaffleRollProcessResult(true, false, true, null);
     }
 
     public static RaffleRollProcessResult Ignored(string reason)
     {
-        return new RaffleRollProcessResult(false, false, reason);
+        return new RaffleRollProcessResult(false, false, false, reason);
     }
 }
