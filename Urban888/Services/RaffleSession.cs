@@ -1,9 +1,9 @@
 using System;
 using System.Linq;
 using System.Text.RegularExpressions;
-using SamplePlugin.Models;
+using Urban888.Models;
 
-namespace SamplePlugin.Services;
+namespace Urban888.Services;
 
 /// <summary>
 /// Contains the raffle's business logic.

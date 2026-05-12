@@ -29,6 +29,6 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: Urban888
-        path: .\SamplePlugin\bin\x64\Release\*
+        path: .\Urban888\bin\x64\Release\*
         if-no-files-found: error
         retention-days: 1

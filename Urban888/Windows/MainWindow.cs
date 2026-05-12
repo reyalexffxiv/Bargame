@@ -2,7 +2,7 @@ using System;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 
-namespace SamplePlugin.Windows;
+namespace Urban888.Windows;
 
 /// <summary>
 /// Main Urban 888 raffle control panel.
@@ -17,6 +17,8 @@ public sealed class MainWindow : Window, IDisposable
     private readonly Plugin plugin;
 
     private int randomsToAdd = 1;
+
+    private const string ClearStatisticsPopupName = "Clear Statistics?";
 
     public MainWindow(Plugin plugin)
         : base("Urban 888###Urban888Main")
@@ -100,7 +102,9 @@ public sealed class MainWindow : Window, IDisposable
         ImGui.SameLine();
 
         if (ImGui.Button("Clear Statistics"))
-            session.ClearSalesLedger();
+            ImGui.OpenPopup(ClearStatisticsPopupName);
+
+        this.DrawClearStatisticsConfirmationPopup(session);
 
         ImGui.Spacing();
         ImGui.Separator();
@@ -155,6 +159,33 @@ public sealed class MainWindow : Window, IDisposable
 
             ImGui.EndTable();
         }
+    }
+
+
+    private void DrawClearStatisticsConfirmationPopup(Services.RaffleSession session)
+    {
+        var popupOpen = true;
+
+        if (!ImGui.BeginPopupModal(ClearStatisticsPopupName, ref popupOpen, ImGuiWindowFlags.AlwaysAutoResize))
+            return;
+
+        ImGui.TextWrapped("This will permanently clear the saved sales ledger.");
+        ImGui.TextWrapped("The active session counters are not reset by this action.");
+
+        ImGui.Spacing();
+
+        if (ImGui.Button("Yes, Clear Statistics", new System.Numerics.Vector2(170, 0)))
+        {
+            session.ClearSalesLedger();
+            ImGui.CloseCurrentPopup();
+        }
+
+        ImGui.SameLine();
+
+        if (ImGui.Button("Cancel", new System.Numerics.Vector2(100, 0)))
+            ImGui.CloseCurrentPopup();
+
+        ImGui.EndPopup();
     }
 
     private void DrawConfigTab()

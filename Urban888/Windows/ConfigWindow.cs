@@ -2,7 +2,7 @@ using System;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 
-namespace SamplePlugin.Windows;
+namespace Urban888.Windows;
 
 /// <summary>
 /// Lightweight config window.

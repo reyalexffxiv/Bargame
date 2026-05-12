@@ -8,11 +8,11 @@ using Dalamud.IoC;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
-using SamplePlugin.Models;
-using SamplePlugin.Services;
-using SamplePlugin.Windows;
+using Urban888.Models;
+using Urban888.Services;
+using Urban888.Windows;
 
-namespace SamplePlugin;
+namespace Urban888;
 
 public sealed class Plugin : IDalamudPlugin
 {
@@ -184,7 +184,7 @@ public sealed class Plugin : IDalamudPlugin
             ChatGui.Print($"[Urban888] {this.RaffleSession.LastNotice}");
             ChatGui.Print(
                 $"[Urban888] Final pot: {this.RaffleSession.TotalPot:N0} gil. " +
-                $"Incoming sales: {this.RaffleSession.IncomingSales:N0} gil.");
+                $"Saved sales: {this.RaffleSession.SalesLedgerTotalGil:N0} gil.");
 
             if (this.Configuration.AutoSayWhenRollsEnd)
                 this.SendSayNotice(this.RaffleSession.LastNotice);
@@ -293,11 +293,12 @@ public sealed class Plugin : IDalamudPlugin
     public void ShoutGameAnnouncement()
     {
         var jackpotText = FormatGilShort(this.RaffleSession.TotalPot);
+        var priceText = FormatGilShort(this.Configuration.PricePerRoll);
 
         var lines = new List<string>
         {
             "Urban 888 Game is ON! Hit 888 and Win the Jackpot!",
-            "100k per roll, max 20 each round",
+            $"{priceText} per roll, max 20 each round",
             $"Jackpot right now is {jackpotText}",
             "All gil goes into the Jackpot Pool",
             "You can find me next to the bar!",
@@ -305,7 +306,7 @@ public sealed class Plugin : IDalamudPlugin
         };
 
         this.GameChatService.QueueShoutSequence(lines, TimeSpan.FromSeconds(2));
-        ChatGui.Print($"[Urban888] Queued shout announcement. Jackpot: {jackpotText}.");
+        ChatGui.Print($"[Urban888] Queued shout announcement. Price: {priceText} per roll. Jackpot: {jackpotText}.");
     }
 
     private static string FormatGilShort(long gil)
@@ -361,7 +362,7 @@ public sealed class Plugin : IDalamudPlugin
     {
         ChatGui.Print($"[Urban888] Target: {this.Configuration.TargetPlayerName}");
         ChatGui.Print($"[Urban888] Randoms: {this.RaffleSession.UsedRolls}/{this.RaffleSession.PurchasedRolls}, Remaining: {this.RaffleSession.RemainingRolls}");
-        ChatGui.Print($"[Urban888] Pot: {this.RaffleSession.TotalPot:N0} gil, Sales: {this.RaffleSession.IncomingSales:N0} gil.");
+        ChatGui.Print($"[Urban888] Pot: {this.RaffleSession.TotalPot:N0} gil, Saved sales: {this.RaffleSession.SalesLedgerTotalGil:N0} gil.");
     }
 
     private static string CleanChatText(string text)

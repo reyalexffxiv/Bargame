@@ -1,6 +1,6 @@
 using System;
 
-namespace SamplePlugin.Models;
+namespace Urban888.Models;
 
 /// <summary>
 /// One raffle sale entry.

@@ -1,4 +1,4 @@
-namespace SamplePlugin.Models;
+namespace Urban888.Models;
 
 /// <summary>
 /// Represents a parsed /random result from the FFXIV chat log.

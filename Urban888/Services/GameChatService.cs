@@ -5,7 +5,7 @@ using FFXIVClientStructs.FFXIV.Client.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Shell;
 using Dalamud.Plugin.Services;
 
-namespace SamplePlugin.Services;
+namespace Urban888.Services;
 
 /// <summary>
 /// Executes native game chatbox commands.

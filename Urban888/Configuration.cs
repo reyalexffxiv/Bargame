@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using Dalamud.Configuration;
 using Dalamud.Plugin;
-using SamplePlugin.Models;
+using Urban888.Models;
 
-namespace SamplePlugin;
+namespace Urban888;
 
 /// <summary>
 /// Persistent plugin configuration.

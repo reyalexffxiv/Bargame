@@ -3,7 +3,7 @@
     <PropertyGroup>
         <Version>0.0.0.1</Version>
         <AssemblyName>Urban888</AssemblyName>
-        <RootNamespace>SamplePlugin</RootNamespace>
+        <RootNamespace>Urban888</RootNamespace>
         <PackageProjectUrl>https://github.com/AmberFey/Urban888</PackageProjectUrl>
         <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
         <IsPackable>false</IsPackable>
