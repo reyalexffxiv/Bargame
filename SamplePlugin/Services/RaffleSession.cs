@@ -49,7 +49,7 @@ public sealed class RaffleSession
 
     public int RemainingRolls => Math.Max(0, this.PurchasedRolls - this.UsedRolls);
 
-    public long TotalPot => this.configuration.BasePot + this.IncomingSales;
+    public long TotalPot => this.configuration.BasePot + this.SalesLedgerTotalGil;
 
     public bool HasTargetPlayer => !string.IsNullOrWhiteSpace(this.configuration.TargetPlayerName);
 
