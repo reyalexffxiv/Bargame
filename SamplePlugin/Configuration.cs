@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using Dalamud.Configuration;
 using Dalamud.Plugin;
+using SamplePlugin.Models;
 
 namespace SamplePlugin;
 
@@ -18,12 +20,12 @@ public sealed class Configuration : IPluginConfiguration
 
     /// <summary>
     /// Player whose /random rolls are being counted.
-    /// This must match the visible chat name.
+    /// This must match the visible chat name as closely as possible.
     /// </summary>
     public string TargetPlayerName { get; set; } = string.Empty;
 
     /// <summary>
-    /// Price for one roll attempt.
+    /// Price for one random attempt.
     /// Default: 100,000 gil.
     /// </summary>
     public long PricePerRoll { get; set; } = 100_000;
@@ -50,6 +52,19 @@ public sealed class Configuration : IPluginConfiguration
     /// Recommended for venue raffles to avoid chat noise.
     /// </summary>
     public bool CountOnlyTargetPlayer { get; set; } = true;
+
+    /// <summary>
+    /// When true, the plugin automatically sends a /say message for halfway
+    /// and final notices.
+    /// </summary>
+    public bool AutoSayWhenRollsEnd { get; set; } = false;
+
+    /// <summary>
+    /// Persistent sales ledger.
+    /// 
+    /// Each purchase is stored separately, even when the same player buys again.
+    /// </summary>
+    public List<RaffleSaleRecord> SalesLedger { get; set; } = new();
 
     [NonSerialized]
     private IDalamudPluginInterface? pluginInterface;

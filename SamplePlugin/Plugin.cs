@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using Dalamud.Game.Chat;
 using Dalamud.Game.Command;
@@ -18,34 +20,29 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
     [PluginService] internal static IObjectTable ObjectTable { get; private set; } = null!;
+    [PluginService] internal static ITargetManager TargetManager { get; private set; } = null!;
+    [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
 
     private const string CommandName = "/urban888";
 
-    /*
-     * FFXIV /random chat can appear in slightly different text forms depending
-     * on whether the roll is yours, another player's, or how Dalamud exposes
-     * the sender/message fields.
-     *
-     * We also allow non-digit characters between "a" and the roll number,
-     * because the game may display a dice icon there.
-     */
-
     private static readonly Regex OwnRandomRollRegex = new(
-        @"^(?:Random!\s*)?You roll a\D*(?<roll>\d+)\.",
+        @"(?:Random!\s*)?You\s+roll\s+an?\D*(?<roll>\d+)\.",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static readonly Regex FullRandomRollRegex = new(
-        @"^(?:Random!\s*)?(?<name>.+?) rolls a\D*(?<roll>\d+)\.",
+        @"(?:Random!\s*)?(?<name>.+?)\s+rolls?\s+an?\D*(?<roll>\d+)\.",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static readonly Regex MessageOnlyRandomRollRegex = new(
-        @"^(?:Random!\s*)?rolls a\D*(?<roll>\d+)\.",
+        @"(?:Random!\s*)?rolls?\s+an?\D*(?<roll>\d+)\.",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public Configuration Configuration { get; }
 
     public RaffleSession RaffleSession { get; }
+
+    public GameChatService GameChatService { get; }
 
     public readonly WindowSystem WindowSystem = new("Urban888");
 
@@ -58,6 +55,7 @@ public sealed class Plugin : IDalamudPlugin
         this.Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         this.Configuration.Initialize(PluginInterface);
 
+        this.GameChatService = new GameChatService(Log);
         this.RaffleSession = new RaffleSession(this.Configuration);
 
         this.ConfigWindow = new ConfigWindow(this);
@@ -70,6 +68,8 @@ public sealed class Plugin : IDalamudPlugin
         {
             HelpMessage = "Open the Urban 888 raffle counter."
         });
+
+        Framework.Update += this.OnFrameworkUpdate;
 
         PluginInterface.UiBuilder.Draw += this.WindowSystem.Draw;
         PluginInterface.UiBuilder.OpenConfigUi += this.ToggleConfigUi;
@@ -88,12 +88,19 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenConfigUi -= this.ToggleConfigUi;
         PluginInterface.UiBuilder.OpenMainUi -= this.ToggleMainUi;
 
+        Framework.Update -= this.OnFrameworkUpdate;
+
         CommandManager.RemoveHandler(CommandName);
 
         this.WindowSystem.RemoveAllWindows();
 
         this.ConfigWindow.Dispose();
         this.MainWindow.Dispose();
+    }
+
+    private void OnFrameworkUpdate(IFramework framework)
+    {
+        this.GameChatService.FlushOnePendingCommand();
     }
 
     private void OnCommand(string command, string args)
@@ -118,6 +125,22 @@ public sealed class Plugin : IDalamudPlugin
                 this.PrintStatus();
                 break;
 
+            case "say":
+                this.SendSayNotice(this.RaffleSession.LastNotice);
+                break;
+
+            case "testsay":
+                this.SendSayNotice("Urban 888 test message.");
+                break;
+
+            case "announce":
+                this.ShoutGameAnnouncement();
+                break;
+
+            case "target":
+                this.SetTargetFromCurrentGameTarget();
+                break;
+
             default:
                 this.MainWindow.Toggle();
                 break;
@@ -138,15 +161,34 @@ public sealed class Plugin : IDalamudPlugin
 
         if (result.IsWinner)
         {
-            ChatGui.Print($"[Urban888] WINNER: {roll.PlayerName} rolled {roll.Value}!");
-            ChatGui.Print($"[Urban888] Final pot: {this.RaffleSession.TotalPot:N0} gil.");
-            ChatGui.Print($"[Urban888] Rolls used: {this.RaffleSession.UsedRolls}/{this.RaffleSession.PurchasedRolls}.");
+            ChatGui.Print($"[Urban888] {this.RaffleSession.LastNotice}");
+
+            if (this.Configuration.AutoSayWhenRollsEnd)
+                this.SendSayNotice(this.RaffleSession.LastNotice);
+
+            return;
+        }
+
+        if (result.HalfwayReached)
+        {
+            ChatGui.Print($"[Urban888] {this.RaffleSession.LastNotice}");
+
+            if (this.Configuration.AutoSayWhenRollsEnd)
+                this.SendSayNotice(this.RaffleSession.LastNotice);
+
             return;
         }
 
         if (result.RollsEnded)
         {
-            ChatGui.Print($"[Urban888] {roll.PlayerName} rolls ended.");
+            ChatGui.Print($"[Urban888] {this.RaffleSession.LastNotice}");
+            ChatGui.Print(
+                $"[Urban888] Final pot: {this.RaffleSession.TotalPot:N0} gil. " +
+                $"Incoming sales: {this.RaffleSession.IncomingSales:N0} gil.");
+
+            if (this.Configuration.AutoSayWhenRollsEnd)
+                this.SendSayNotice(this.RaffleSession.LastNotice);
+
             return;
         }
 
@@ -158,16 +200,9 @@ public sealed class Plugin : IDalamudPlugin
 
     private RollResult? TryParseRandomRoll(IHandleableChatMessage chatMessage)
     {
-        var senderText = chatMessage.Sender.TextValue.Trim();
-        var messageText = chatMessage.Message.TextValue.Trim();
+        var senderText = CleanChatText(chatMessage.Sender.TextValue);
+        var messageText = CleanChatText(chatMessage.Message.TextValue);
 
-        /*
-         * Own rolls usually appear as:
-         * "Random! You roll a 897."
-         *
-         * In that case, the player's name is not inside the message body,
-         * so we use the local player name from IObjectTable.
-         */
         var ownRollMatch = OwnRandomRollRegex.Match(messageText);
         if (ownRollMatch.Success && int.TryParse(ownRollMatch.Groups["roll"].Value, out var ownRoll))
         {
@@ -179,29 +214,23 @@ public sealed class Plugin : IDalamudPlugin
             return new RollResult(localPlayerName, ownRoll);
         }
 
-        /*
-         * Other player rolls may appear as:
-         * "First Last rolls a 123."
-         * "First Last @ Server rolls a 123."
-         */
         var fullMatch = FullRandomRollRegex.Match(messageText);
         if (fullMatch.Success && int.TryParse(fullMatch.Groups["roll"].Value, out var fullRoll))
         {
-            return new RollResult(
-                fullMatch.Groups["name"].Value.Trim(),
-                fullRoll);
+            var parsedName = CleanPlayerName(fullMatch.Groups["name"].Value);
+
+            if (!string.IsNullOrWhiteSpace(parsedName))
+                return new RollResult(parsedName, fullRoll);
         }
 
-        /*
-         * Some chat events expose the player name through Sender and only
-         * place "rolls a 123." in the message body.
-         */
         var messageOnlyMatch = MessageOnlyRandomRollRegex.Match(messageText);
-        if (messageOnlyMatch.Success &&
-            !string.IsNullOrWhiteSpace(senderText) &&
-            int.TryParse(messageOnlyMatch.Groups["roll"].Value, out var messageOnlyRoll))
+        if (messageOnlyMatch.Success && int.TryParse(messageOnlyMatch.Groups["roll"].Value, out var messageOnlyRoll))
         {
-            return new RollResult(senderText, messageOnlyRoll);
+            if (!string.IsNullOrWhiteSpace(senderText))
+                return new RollResult(CleanPlayerName(senderText), messageOnlyRoll);
+
+            if (!string.IsNullOrWhiteSpace(this.Configuration.TargetPlayerName))
+                return new RollResult(this.Configuration.TargetPlayerName, messageOnlyRoll);
         }
 
         return null;
@@ -220,6 +249,82 @@ public sealed class Plugin : IDalamudPlugin
         }
     }
 
+    public void SetTargetFromCurrentGameTarget()
+    {
+        var targetName = GetCurrentGameTargetName();
+
+        if (string.IsNullOrWhiteSpace(targetName))
+        {
+            ChatGui.PrintError("[Urban888] No valid target selected.");
+            return;
+        }
+
+        this.Configuration.TargetPlayerName = targetName;
+        this.Configuration.Save();
+
+        ChatGui.Print($"[Urban888] Target player set to {targetName}.");
+    }
+
+    private static string GetCurrentGameTargetName()
+    {
+        try
+        {
+            return TargetManager.Target?.Name.TextValue.Trim() ?? string.Empty;
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Could not read current game target name.");
+            return string.Empty;
+        }
+    }
+
+    public void SendSayNotice(string notice)
+    {
+        if (string.IsNullOrWhiteSpace(notice))
+            return;
+
+        this.GameChatService.QueueSay(notice);
+    }
+
+    /// <summary>
+    /// Sends the public shout advertisement for the game.
+    /// The jackpot amount is read live from the current session total pot.
+    /// </summary>
+    public void ShoutGameAnnouncement()
+    {
+        var jackpotText = FormatGilShort(this.RaffleSession.TotalPot);
+
+        var lines = new List<string>
+        {
+            "Urban 888 Game is ON! Hit 888 and Win the Jackpot!",
+            "100k per roll, max 20 each round",
+            $"Jackpot right now is {jackpotText}",
+            "All gil goes into the Jackpot Pool",
+            "You can find me next to the bar!",
+            "First to roll 888 wins it ALL!"
+        };
+
+        this.GameChatService.QueueShoutSequence(lines, TimeSpan.FromSeconds(2));
+        ChatGui.Print($"[Urban888] Queued shout announcement. Jackpot: {jackpotText}.");
+    }
+
+    private static string FormatGilShort(long gil)
+    {
+        if (gil >= 1_000_000)
+        {
+            var millions = gil / 1_000_000d;
+            return $"{millions.ToString("0.#", CultureInfo.InvariantCulture)}M";
+        }
+
+        if (gil >= 1_000)
+        {
+            var thousands = gil / 1_000d;
+            return $"{thousands.ToString("0.#", CultureInfo.InvariantCulture)}K";
+        }
+
+        return gil.ToString("N0", CultureInfo.InvariantCulture);
+    }
+
     public void StartRaffle()
     {
         if (!this.RaffleSession.HasTargetPlayer)
@@ -231,7 +336,7 @@ public sealed class Plugin : IDalamudPlugin
 
         if (this.RaffleSession.RemainingRolls <= 0)
         {
-            ChatGui.PrintError("[Urban888] Add roll sales before starting.");
+            ChatGui.PrintError("[Urban888] Add randoms before starting.");
             this.MainWindow.IsOpen = true;
             return;
         }
@@ -255,8 +360,31 @@ public sealed class Plugin : IDalamudPlugin
     public void PrintStatus()
     {
         ChatGui.Print($"[Urban888] Target: {this.Configuration.TargetPlayerName}");
-        ChatGui.Print($"[Urban888] Rolls: {this.RaffleSession.UsedRolls}/{this.RaffleSession.PurchasedRolls}, Remaining: {this.RaffleSession.RemainingRolls}");
+        ChatGui.Print($"[Urban888] Randoms: {this.RaffleSession.UsedRolls}/{this.RaffleSession.PurchasedRolls}, Remaining: {this.RaffleSession.RemainingRolls}");
         ChatGui.Print($"[Urban888] Pot: {this.RaffleSession.TotalPot:N0} gil, Sales: {this.RaffleSession.IncomingSales:N0} gil.");
+    }
+
+    private static string CleanChatText(string text)
+    {
+        return text
+            .Replace('\u00A0', ' ')
+            .Replace("", " ")
+            .Replace("", " ")
+            .Replace("", " ")
+            .Replace("", " ")
+            .Replace("", " ")
+            .Replace("", " ")
+            .Trim();
+    }
+
+    private static string CleanPlayerName(string playerName)
+    {
+        var cleaned = CleanChatText(playerName);
+
+        if (cleaned.StartsWith("Random!", StringComparison.OrdinalIgnoreCase))
+            cleaned = cleaned["Random!".Length..].Trim();
+
+        return cleaned;
     }
 
     public void ToggleConfigUi() => this.ConfigWindow.Toggle();

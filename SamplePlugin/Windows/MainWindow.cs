@@ -5,22 +5,26 @@ using Dalamud.Interface.Windowing;
 namespace SamplePlugin.Windows;
 
 /// <summary>
-/// Main Urban888 raffle control panel.
-/// 
-/// This class is responsible for UI only. Raffle rules and calculations stay
-/// in RaffleSession so future developers can maintain the logic separately.
+/// Main Urban 888 raffle control panel.
+///
+/// Tabs:
+/// - Main: live venue operation.
+/// - Statistics: sales ledger.
+/// - Config: slower settings.
 /// </summary>
 public sealed class MainWindow : Window, IDisposable
 {
     private readonly Plugin plugin;
 
+    private int randomsToAdd = 1;
+
     public MainWindow(Plugin plugin)
-        : base("Urban888 Raffle Counter###Urban888Main")
+        : base("Urban 888###Urban888Main")
     {
         this.plugin = plugin;
         this.SizeConstraints = new WindowSizeConstraints
         {
-            MinimumSize = new System.Numerics.Vector2(430, 420),
+            MinimumSize = new System.Numerics.Vector2(760, 390),
             MaximumSize = new System.Numerics.Vector2(float.MaxValue, float.MaxValue)
         };
     }
@@ -31,20 +35,135 @@ public sealed class MainWindow : Window, IDisposable
 
     public override void Draw()
     {
+        if (!ImGui.BeginTabBar("Urban888Tabs"))
+            return;
+
+        if (ImGui.BeginTabItem("Main"))
+        {
+            this.DrawMainTab();
+            ImGui.EndTabItem();
+        }
+
+        if (ImGui.BeginTabItem("Statistics"))
+        {
+            this.DrawStatisticsTab();
+            ImGui.EndTabItem();
+        }
+
+        if (ImGui.BeginTabItem("Config"))
+        {
+            this.DrawConfigTab();
+            ImGui.EndTabItem();
+        }
+
+        ImGui.EndTabBar();
+    }
+
+    private void DrawMainTab()
+    {
         var config = this.plugin.Configuration;
         var session = this.plugin.RaffleSession;
 
-        ImGui.TextUnformatted("Urban888 Raffle Counter");
+        ImGui.TextUnformatted("Urban 888");
         ImGui.Separator();
 
-        this.DrawTextInput(
-            "Target Player",
-            config.TargetPlayerName,
-            value =>
+        this.DrawQuickSetupRow(config, session);
+        ImGui.Separator();
+
+        this.DrawSessionSummary(session);
+        ImGui.Separator();
+
+        this.DrawMainControls(session);
+        ImGui.Separator();
+
+        this.DrawAnnouncementSection(session);
+    }
+
+    private void DrawStatisticsTab()
+    {
+        var config = this.plugin.Configuration;
+        var session = this.plugin.RaffleSession;
+
+        ImGui.TextUnformatted("Sales Statistics");
+        ImGui.Separator();
+
+        ImGui.TextUnformatted($"Rows: {config.SalesLedger.Count}");
+        ImGui.TextUnformatted($"Total Randoms: {session.SalesLedgerTotalRandoms}");
+        ImGui.TextUnformatted($"Total Sales: {session.SalesLedgerTotalGil:N0} gil");
+        ImGui.TextUnformatted($"Current Jackpot: {session.TotalPot:N0} gil");
+
+        ImGui.Spacing();
+
+        if (ImGui.Button("Remove Last Sale"))
+            session.RemoveLastSale();
+
+        ImGui.SameLine();
+
+        if (ImGui.Button("Clear Statistics"))
+            session.ClearSalesLedger();
+
+        ImGui.Spacing();
+        ImGui.Separator();
+
+        if (ImGui.BeginTable(
+                "SalesLedgerTable",
+                4,
+                ImGuiTableFlags.Borders |
+                ImGuiTableFlags.RowBg |
+                ImGuiTableFlags.Resizable |
+                ImGuiTableFlags.ScrollY,
+                new System.Numerics.Vector2(0, 220)))
+        {
+            ImGui.TableSetupColumn("#", ImGuiTableColumnFlags.WidthFixed, 40);
+            ImGui.TableSetupColumn("Player");
+            ImGui.TableSetupColumn("Randoms", ImGuiTableColumnFlags.WidthFixed, 90);
+            ImGui.TableSetupColumn("Gil", ImGuiTableColumnFlags.WidthFixed, 130);
+            ImGui.TableHeadersRow();
+
+            for (var i = 0; i < config.SalesLedger.Count; i++)
             {
-                config.TargetPlayerName = value;
-                config.Save();
-            });
+                var sale = config.SalesLedger[i];
+
+                ImGui.TableNextRow();
+
+                ImGui.TableSetColumnIndex(0);
+                ImGui.TextUnformatted((i + 1).ToString());
+
+                ImGui.TableSetColumnIndex(1);
+                ImGui.TextUnformatted(sale.PlayerName);
+
+                ImGui.TableSetColumnIndex(2);
+                ImGui.TextUnformatted(sale.Randoms.ToString());
+
+                ImGui.TableSetColumnIndex(3);
+                ImGui.TextUnformatted($"{sale.Gil:N0}");
+            }
+
+            ImGui.TableNextRow();
+
+            ImGui.TableSetColumnIndex(0);
+            ImGui.TextUnformatted("");
+
+            ImGui.TableSetColumnIndex(1);
+            ImGui.TextUnformatted("TOTAL");
+
+            ImGui.TableSetColumnIndex(2);
+            ImGui.TextUnformatted(session.SalesLedgerTotalRandoms.ToString());
+
+            ImGui.TableSetColumnIndex(3);
+            ImGui.TextUnformatted($"{session.SalesLedgerTotalGil:N0}");
+
+            ImGui.EndTable();
+        }
+    }
+
+    private void DrawConfigTab()
+    {
+        var config = this.plugin.Configuration;
+        var session = this.plugin.RaffleSession;
+
+        ImGui.TextUnformatted("Raffle Config");
+        ImGui.Separator();
 
         this.DrawLongInput(
             "Base Pot",
@@ -56,7 +175,7 @@ public sealed class MainWindow : Window, IDisposable
             });
 
         this.DrawLongInput(
-            "Price Per Roll",
+            "Price Per Random",
             config.PricePerRoll,
             value =>
             {
@@ -65,7 +184,7 @@ public sealed class MainWindow : Window, IDisposable
             });
 
         this.DrawIntInput(
-            "Winning Roll",
+            "Winning Random",
             config.TargetRoll,
             value =>
             {
@@ -73,8 +192,11 @@ public sealed class MainWindow : Window, IDisposable
                 config.Save();
             });
 
+        ImGui.Spacing();
+        ImGui.Separator();
+
         var countOnlyTarget = config.CountOnlyTargetPlayer;
-        if (ImGui.Checkbox("Only count target player's rolls", ref countOnlyTarget))
+        if (ImGui.Checkbox("Only count target player's randoms", ref countOnlyTarget))
         {
             config.CountOnlyTargetPlayer = countOnlyTarget;
             config.Save();
@@ -87,23 +209,108 @@ public sealed class MainWindow : Window, IDisposable
             config.Save();
         }
 
+        var autoSayWhenRollsEnd = config.AutoSayWhenRollsEnd;
+        if (ImGui.Checkbox("Auto /say halfway and final notices", ref autoSayWhenRollsEnd))
+        {
+            config.AutoSayWhenRollsEnd = autoSayWhenRollsEnd;
+            config.Save();
+        }
+
+        ImGui.Spacing();
         ImGui.Separator();
 
+        ImGui.TextUnformatted("Active Session Corrections");
+
+        if (ImGui.Button("-1 Correction"))
+            session.RemovePurchasedRolls(1);
+
+        ImGui.SameLine();
+
+        if (ImGui.Button("-5 Correction"))
+            session.RemovePurchasedRolls(5);
+
+        ImGui.Spacing();
+        ImGui.Separator();
+
+        ImGui.TextWrapped("Statistics are saved in the plugin configuration.");
+        ImGui.TextWrapped("Reset Session does not clear Statistics.");
+    }
+
+    private void DrawQuickSetupRow(Configuration config, Services.RaffleSession session)
+    {
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextUnformatted("Target Player");
+
+        ImGui.SameLine();
+
+        ImGui.SetNextItemWidth(230);
+
+        var targetName = config.TargetPlayerName;
+        if (ImGui.InputText("##TargetPlayer", ref targetName, 128))
+        {
+            config.TargetPlayerName = targetName;
+            config.Save();
+        }
+
+        ImGui.SameLine();
+
+        if (ImGui.Button("Use Current Target"))
+            this.plugin.SetTargetFromCurrentGameTarget();
+
+        ImGui.SameLine();
+
+        if (ImGui.Button("Clear"))
+        {
+            config.TargetPlayerName = string.Empty;
+            config.Save();
+        }
+
+        ImGui.SameLine();
+
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextUnformatted("Randoms");
+
+        ImGui.SameLine();
+
+        ImGui.SetNextItemWidth(80);
+        ImGui.InputInt("##Randoms", ref this.randomsToAdd);
+
+        if (this.randomsToAdd < 1)
+            this.randomsToAdd = 1;
+
+        ImGui.SameLine();
+
+        if (ImGui.Button("Add"))
+            session.AddSale(config.TargetPlayerName, this.randomsToAdd);
+    }
+
+    private void DrawSessionSummary(Services.RaffleSession session)
+    {
+        ImGui.TextUnformatted("Session");
+
         ImGui.TextUnformatted($"Status: {(session.IsRunning ? "Running" : "Stopped")}");
-        ImGui.TextUnformatted($"Purchased Rolls: {session.PurchasedRolls}");
-        ImGui.TextUnformatted($"Used Rolls: {session.UsedRolls}");
-        ImGui.TextUnformatted($"Remaining Rolls: {session.RemainingRolls}");
-        ImGui.TextUnformatted($"Incoming Sales: {session.IncomingSales:N0} gil");
-        ImGui.TextUnformatted($"Total Pot: {session.TotalPot:N0} gil");
+        ImGui.TextUnformatted($"Randoms: {session.UsedRolls}/{session.PurchasedRolls}");
+        ImGui.TextUnformatted($"Remaining: {session.RemainingRolls}");
+        ImGui.TextUnformatted($"Pot: {session.TotalPot:N0} gil");
 
         if (session.LastRoll is not null)
-            ImGui.TextUnformatted($"Last Roll: {session.LastRoll.PlayerName} rolled {session.LastRoll.Value}");
+            ImGui.TextUnformatted($"Last Random: {session.LastRoll.PlayerName} rolled {session.LastRoll.Value}");
 
         if (session.WinningRoll is not null)
             ImGui.TextUnformatted($"Winner: {session.WinningRoll.PlayerName} rolled {session.WinningRoll.Value}");
 
-        ImGui.Separator();
+        if (!string.IsNullOrWhiteSpace(session.LastNotice))
+        {
+            ImGui.Spacing();
+            ImGui.TextWrapped($"Notice: {session.LastNotice}");
+        }
 
+        ImGui.Spacing();
+        ImGui.TextWrapped($"Chat Sender: {this.plugin.GameChatService.LastStatus}");
+    }
+
+    private void DrawMainControls(Services.RaffleSession session)
+    {
         if (ImGui.Button(session.IsRunning ? "Stop Counting" : "Start Counting"))
         {
             if (session.IsRunning)
@@ -116,47 +323,49 @@ public sealed class MainWindow : Window, IDisposable
 
         if (ImGui.Button("Reset Session"))
             this.plugin.ResetRaffle();
-
-        ImGui.Separator();
-
-        if (ImGui.Button("+1 Roll Sale"))
-            session.AddPurchasedRolls(1);
-
-        ImGui.SameLine();
-
-        if (ImGui.Button("+5 Roll Sale"))
-            session.AddPurchasedRolls(5);
-
-        ImGui.SameLine();
-
-        if (ImGui.Button("+10 Roll Sale"))
-            session.AddPurchasedRolls(10);
-
-        if (ImGui.Button("-1 Roll Correction"))
-            session.RemovePurchasedRolls(1);
-
-        ImGui.SameLine();
-
-        if (ImGui.Button("-5 Roll Correction"))
-            session.RemovePurchasedRolls(5);
-
-        ImGui.Separator();
-
-        if (ImGui.Button("Print Status To Chat"))
-            this.plugin.PrintStatus();
     }
 
-    private void DrawTextInput(string label, string currentValue, Action<string> onChanged)
+    private void DrawAnnouncementSection(Services.RaffleSession session)
     {
-        var value = currentValue;
+        ImGui.TextUnformatted("Announcements");
 
-        if (ImGui.InputText(label, ref value, 128))
-            onChanged(value);
+        if (ImGui.Button("Copy /say Notice"))
+            ImGui.SetClipboardText(BuildSayCommand(session.LastNotice));
+
+        ImGui.SameLine();
+
+        if (ImGui.Button("Say Notice Now"))
+            this.plugin.SendSayNotice(session.LastNotice);
+
+        ImGui.SameLine();
+
+        if (ImGui.Button("Shout Game Ad"))
+            this.plugin.ShoutGameAnnouncement();
+
+        ImGui.SameLine();
+
+        if (ImGui.Button("Test /say"))
+            this.plugin.SendSayNotice("Urban 888 test message.");
+    }
+
+    private static string BuildSayCommand(string notice)
+    {
+        if (string.IsNullOrWhiteSpace(notice))
+            return string.Empty;
+
+        var cleanNotice = notice
+            .Replace("\r", " ")
+            .Replace("\n", " ")
+            .Trim();
+
+        return $"/s {cleanNotice}";
     }
 
     private void DrawIntInput(string label, int currentValue, Action<int> onChanged)
     {
         var value = currentValue;
+
+        ImGui.SetNextItemWidth(160);
 
         if (ImGui.InputInt(label, ref value))
             onChanged(value);
@@ -164,9 +373,9 @@ public sealed class MainWindow : Window, IDisposable
 
     private void DrawLongInput(string label, long currentValue, Action<long> onChanged)
     {
-        // ImGuiNET is more comfortable with text input for long values.
-        // This also lets users paste values like 30000000 without spinner friction.
         var valueText = currentValue.ToString();
+
+        ImGui.SetNextItemWidth(160);
 
         if (!ImGui.InputText(label, ref valueText, 32))
             return;

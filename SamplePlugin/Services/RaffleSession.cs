@@ -1,4 +1,6 @@
 using System;
+using System.Linq;
+using System.Text.RegularExpressions;
 using SamplePlugin.Models;
 
 namespace SamplePlugin.Services;
@@ -12,6 +14,9 @@ namespace SamplePlugin.Services;
 /// </summary>
 public sealed class RaffleSession
 {
+    private static readonly Regex WhitespaceRegex = new(@"\s+", RegexOptions.Compiled);
+    private static readonly Regex NonLetterOrDigitRegex = new(@"[^\p{L}\p{Nd}]+", RegexOptions.Compiled);
+
     private readonly Configuration configuration;
 
     public RaffleSession(Configuration configuration)
@@ -31,11 +36,26 @@ public sealed class RaffleSession
 
     public RollResult? WinningRoll { get; private set; }
 
+    /// <summary>
+    /// Prevents the halfway announcement from being sent more than once per run.
+    /// </summary>
+    private bool HalfwayNoticeSent { get; set; }
+
+    /// <summary>
+    /// Human-readable status message shown in the main UI.
+    /// Useful when chat filters hide local plugin output.
+    /// </summary>
+    public string LastNotice { get; private set; } = string.Empty;
+
     public int RemainingRolls => Math.Max(0, this.PurchasedRolls - this.UsedRolls);
 
     public long TotalPot => this.configuration.BasePot + this.IncomingSales;
 
     public bool HasTargetPlayer => !string.IsNullOrWhiteSpace(this.configuration.TargetPlayerName);
+
+    public int SalesLedgerTotalRandoms => this.configuration.SalesLedger.Sum(sale => sale.Randoms);
+
+    public long SalesLedgerTotalGil => this.configuration.SalesLedger.Sum(sale => sale.Gil);
 
     /// <summary>
     /// Starts counting valid /random rolls.
@@ -44,6 +64,8 @@ public sealed class RaffleSession
     {
         this.IsRunning = true;
         this.WinningRoll = null;
+        this.HalfwayNoticeSent = false;
+        this.LastNotice = $"Counting started for {this.configuration.TargetPlayerName}.";
     }
 
     /// <summary>
@@ -55,10 +77,10 @@ public sealed class RaffleSession
     }
 
     /// <summary>
-    /// Resets the current raffle session.
+    /// Resets the active counting session.
     /// 
-    /// This does not reset persistent settings like target player, base pot,
-    /// price per roll, or target roll.
+    /// This does not clear the sales ledger.
+    /// Use ClearSalesLedger() if you want to wipe the statistics tab.
     /// </summary>
     public void Reset()
     {
@@ -68,29 +90,58 @@ public sealed class RaffleSession
         this.IncomingSales = 0;
         this.LastRoll = null;
         this.WinningRoll = null;
+        this.HalfwayNoticeSent = false;
+        this.LastNotice = "Session reset.";
     }
 
     /// <summary>
-    /// Adds paid roll attempts.
-    /// 
-    /// Sales increase the pot immediately. Used rolls only consume attempts.
-    /// This keeps the pot correct if the player wins before using every
-    /// purchased roll.
+    /// Adds a sale for the current target player.
+    /// Kept for compatibility with existing buttons/code.
     /// </summary>
     public void AddPurchasedRolls(int amount)
     {
-        if (amount <= 0)
+        this.AddSale(this.configuration.TargetPlayerName, amount);
+    }
+
+    /// <summary>
+    /// Adds paid random attempts and records them in the persistent sales ledger.
+    /// 
+    /// Each call creates a new row. Repeated purchases by the same player are
+    /// intentionally not merged.
+    /// </summary>
+    public void AddSale(string playerName, int randoms)
+    {
+        if (randoms <= 0)
             return;
 
-        this.PurchasedRolls += amount;
-        this.IncomingSales += this.configuration.PricePerRoll * amount;
+        var cleanPlayerName = string.IsNullOrWhiteSpace(playerName)
+            ? "Unknown"
+            : playerName.Trim();
+
+        var gil = this.configuration.PricePerRoll * randoms;
+
+        this.configuration.SalesLedger.Add(new RaffleSaleRecord
+        {
+            PlayerName = cleanPlayerName,
+            Randoms = randoms,
+            Gil = gil,
+            CreatedAtLocal = DateTime.Now
+        });
+
+        this.configuration.Save();
+
+        this.PurchasedRolls += randoms;
+        this.IncomingSales += gil;
+
+        if (this.UsedRolls < this.GetHalfwayThreshold())
+            this.HalfwayNoticeSent = false;
+
+        this.LastNotice = $"{randoms} random(s) added for {cleanPlayerName}.";
     }
 
     /// <summary>
     /// Removes purchased rolls as a correction.
-    /// 
-    /// This also removes the matching sales amount from incoming sales.
-    /// It never lets purchased rolls, used rolls, or incoming sales go negative.
+    /// This affects the active session numbers only.
     /// </summary>
     public void RemovePurchasedRolls(int amount)
     {
@@ -106,36 +157,87 @@ public sealed class RaffleSession
         var salesToRemove = this.configuration.PricePerRoll * removableRolls;
         this.IncomingSales = Math.Max(0, this.IncomingSales - salesToRemove);
 
+        if (this.UsedRolls < this.GetHalfwayThreshold())
+            this.HalfwayNoticeSent = false;
+
+        this.LastNotice = $"{removableRolls} random(s) removed from active session.";
+
         if (this.RemainingRolls <= 0 && this.PurchasedRolls > 0)
             this.Stop();
     }
 
     /// <summary>
+    /// Removes the latest sale row from the statistics ledger and active session.
+    /// Useful when a sale was added by mistake.
+    /// </summary>
+    public void RemoveLastSale()
+    {
+        if (this.configuration.SalesLedger.Count <= 0)
+        {
+            this.LastNotice = "No sales to remove.";
+            return;
+        }
+
+        var lastIndex = this.configuration.SalesLedger.Count - 1;
+        var sale = this.configuration.SalesLedger[lastIndex];
+
+        this.configuration.SalesLedger.RemoveAt(lastIndex);
+        this.configuration.Save();
+
+        this.PurchasedRolls = Math.Max(0, this.PurchasedRolls - sale.Randoms);
+
+        if (this.UsedRolls > this.PurchasedRolls)
+            this.UsedRolls = this.PurchasedRolls;
+
+        this.IncomingSales = Math.Max(0, this.IncomingSales - sale.Gil);
+
+        this.LastNotice = $"Removed last sale: {sale.Randoms} random(s) for {sale.PlayerName}.";
+    }
+
+    /// <summary>
+    /// Clears the persistent statistics ledger.
+    /// 
+    /// This does not reset the active counting session.
+    /// Use Reset() separately if needed.
+    /// </summary>
+    public void ClearSalesLedger()
+    {
+        this.configuration.SalesLedger.Clear();
+        this.configuration.Save();
+
+        this.LastNotice = "Sales statistics cleared.";
+    }
+
+    /// <summary>
     /// Checks whether a player name from chat matches the configured target.
-    /// 
-    /// FFXIV chat may display names as:
-    /// "First Last"
-    /// or
-    /// "First Last @ Server"
-    /// 
-    /// We normalize both sides before comparison so users can type either form.
     /// </summary>
     public bool IsTargetPlayer(string playerName)
     {
-        var normalizedRollPlayer = NormalizePlayerName(playerName);
-        var normalizedTargetPlayer = NormalizePlayerName(this.configuration.TargetPlayerName);
+        var rollPlayer = NormalizePlayerName(playerName);
+        var targetPlayer = NormalizePlayerName(this.configuration.TargetPlayerName);
 
-        return string.Equals(
-            normalizedRollPlayer,
-            normalizedTargetPlayer,
-            StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(rollPlayer) || string.IsNullOrWhiteSpace(targetPlayer))
+            return false;
+
+        if (string.Equals(rollPlayer, targetPlayer, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (StartsWithWholeName(rollPlayer, targetPlayer) ||
+            StartsWithWholeName(targetPlayer, rollPlayer))
+            return true;
+
+        var compactRollPlayer = CompactNameForComparison(rollPlayer);
+        var compactTargetPlayer = CompactNameForComparison(targetPlayer);
+
+        if (string.IsNullOrWhiteSpace(compactRollPlayer) || string.IsNullOrWhiteSpace(compactTargetPlayer))
+            return false;
+
+        return compactRollPlayer.StartsWith(compactTargetPlayer, StringComparison.OrdinalIgnoreCase) ||
+               compactTargetPlayer.StartsWith(compactRollPlayer, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
     /// Processes a parsed /random roll.
-    /// 
-    /// Returns a result object explaining what happened. The plugin layer can
-    /// decide how much of that result to print to chat.
     /// </summary>
     public RaffleRollProcessResult ProcessRoll(RollResult roll)
     {
@@ -154,6 +256,7 @@ public sealed class RaffleSession
             if (this.RemainingRolls <= 0)
             {
                 this.Stop();
+                this.LastNotice = this.BuildFinalNotice();
                 return RaffleRollProcessResult.RollLimitReached();
             }
 
@@ -165,6 +268,7 @@ public sealed class RaffleSession
         if (isWinner)
         {
             this.WinningRoll = roll;
+            this.LastNotice = $"WINNER: {this.configuration.TargetPlayerName} rolled {roll.Value}! Final pot: {this.TotalPot:N0} gil.";
 
             if (this.configuration.StopWhenWinnerFound)
                 this.Stop();
@@ -172,36 +276,101 @@ public sealed class RaffleSession
             return RaffleRollProcessResult.Winner();
         }
 
-        // If the target player just consumed their final paid roll, stop immediately.
-        // This prevents extra /random rolls from being counted after the purchased
-        // attempts are exhausted.
         if (isTargetPlayer && this.RemainingRolls <= 0)
         {
             this.Stop();
+            this.LastNotice = this.BuildFinalNotice();
             return RaffleRollProcessResult.RollLimitReached();
         }
+
+        if (isTargetPlayer && this.ShouldSendHalfwayNotice())
+        {
+            this.HalfwayNoticeSent = true;
+            this.LastNotice = this.BuildHalfwayNotice();
+            return RaffleRollProcessResult.HalfwayReachedResult();
+        }
+
+        if (isTargetPlayer)
+            this.LastNotice = $"{this.configuration.TargetPlayerName} rolled {roll.Value}. Remaining: {this.RemainingRolls}.";
+        else
+            this.LastNotice = $"{roll.PlayerName} rolled {roll.Value}. Remaining: {this.RemainingRolls}.";
 
         return RaffleRollProcessResult.Counted();
     }
 
-    /// <summary>
-    /// Normalizes player names for comparison.
-    /// 
-    /// This strips the optional world/server suffix after "@":
-    /// "Rey Alex @ Phantom" becomes "Rey Alex".
-    /// </summary>
+    private bool ShouldSendHalfwayNotice()
+    {
+        if (this.HalfwayNoticeSent)
+            return false;
+
+        if (this.PurchasedRolls <= 1)
+            return false;
+
+        if (this.RemainingRolls <= 0)
+            return false;
+
+        return this.UsedRolls >= this.GetHalfwayThreshold();
+    }
+
+    private int GetHalfwayThreshold()
+    {
+        if (this.PurchasedRolls <= 0)
+            return 0;
+
+        return (this.PurchasedRolls + 1) / 2;
+    }
+
+    private string BuildHalfwayNotice()
+    {
+        return $"{this.UsedRolls}/{this.PurchasedRolls} randoms for {this.configuration.TargetPlayerName} are done, {this.RemainingRolls} remaining!";
+    }
+
+    private string BuildFinalNotice()
+    {
+        return $"{this.UsedRolls}/{this.PurchasedRolls} randoms for {this.configuration.TargetPlayerName} are done!";
+    }
+
     private static string NormalizePlayerName(string playerName)
     {
         if (string.IsNullOrWhiteSpace(playerName))
             return string.Empty;
 
-        var trimmed = playerName.Trim();
+        var trimmed = playerName
+            .Replace('\u00A0', ' ')
+            .Replace("", " ")
+            .Replace("", " ")
+            .Replace("", " ")
+            .Replace("", " ")
+            .Replace("", " ")
+            .Replace("", " ")
+            .Trim();
 
         var atIndex = trimmed.IndexOf('@');
         if (atIndex >= 0)
             trimmed = trimmed[..atIndex].Trim();
 
+        trimmed = WhitespaceRegex.Replace(trimmed, " ");
+
         return trimmed;
+    }
+
+    private static string CompactNameForComparison(string playerName)
+    {
+        if (string.IsNullOrWhiteSpace(playerName))
+            return string.Empty;
+
+        return NonLetterOrDigitRegex.Replace(playerName, string.Empty);
+    }
+
+    private static bool StartsWithWholeName(string longerName, string shorterName)
+    {
+        if (!longerName.StartsWith(shorterName, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (longerName.Length == shorterName.Length)
+            return true;
+
+        return char.IsWhiteSpace(longerName[shorterName.Length]);
     }
 }
 
@@ -210,11 +379,17 @@ public sealed class RaffleSession
 /// </summary>
 public sealed class RaffleRollProcessResult
 {
-    private RaffleRollProcessResult(bool wasCounted, bool isWinner, bool rollsEnded, string? reason)
+    private RaffleRollProcessResult(
+        bool wasCounted,
+        bool isWinner,
+        bool rollsEnded,
+        bool halfwayReached,
+        string? reason)
     {
         this.WasCounted = wasCounted;
         this.IsWinner = isWinner;
         this.RollsEnded = rollsEnded;
+        this.HalfwayReached = halfwayReached;
         this.Reason = reason;
     }
 
@@ -224,25 +399,32 @@ public sealed class RaffleRollProcessResult
 
     public bool RollsEnded { get; }
 
+    public bool HalfwayReached { get; }
+
     public string? Reason { get; }
 
     public static RaffleRollProcessResult Counted()
     {
-        return new RaffleRollProcessResult(true, false, false, null);
+        return new RaffleRollProcessResult(true, false, false, false, null);
     }
 
     public static RaffleRollProcessResult Winner()
     {
-        return new RaffleRollProcessResult(true, true, false, null);
+        return new RaffleRollProcessResult(true, true, false, false, null);
     }
 
     public static RaffleRollProcessResult RollLimitReached()
     {
-        return new RaffleRollProcessResult(true, false, true, null);
+        return new RaffleRollProcessResult(true, false, true, false, null);
+    }
+
+    public static RaffleRollProcessResult HalfwayReachedResult()
+    {
+        return new RaffleRollProcessResult(true, false, false, true, null);
     }
 
     public static RaffleRollProcessResult Ignored(string reason)
     {
-        return new RaffleRollProcessResult(false, false, false, reason);
+        return new RaffleRollProcessResult(false, false, false, false, reason);
     }
 }
