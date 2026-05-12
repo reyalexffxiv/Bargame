@@ -25,6 +25,7 @@ public sealed class MainWindow : Window, IDisposable
 
     private const string ClearStatisticsPopupName = "Clear Statistics?";
     private const string DeleteSalePopupName = "Delete Sale?";
+    private const string ResetSessionPopupName = "Reset Session?";
 
     public MainWindow(Plugin plugin)
         : base("Urban 888###Urban888Main")
@@ -82,6 +83,7 @@ public sealed class MainWindow : Window, IDisposable
         ImGui.Separator();
 
         this.DrawMainControls(session);
+        this.DrawResetSessionConfirmationPopup(session);
         ImGui.Separator();
 
         this.DrawAnnouncementSection(session);
@@ -269,6 +271,35 @@ public sealed class MainWindow : Window, IDisposable
         ImGui.EndPopup();
     }
 
+    private void DrawResetSessionConfirmationPopup(Services.RaffleSession session)
+    {
+        var popupOpen = true;
+
+        if (!ImGui.BeginPopupModal(ResetSessionPopupName, ref popupOpen, ImGuiWindowFlags.AlwaysAutoResize))
+            return;
+
+        ImGui.TextWrapped("This will reset the active raffle session.");
+        ImGui.TextWrapped("Saved Statistics and jackpot sales will not be cleared.");
+        ImGui.Spacing();
+        ImGui.TextUnformatted($"Current progress: {session.UsedRolls}/{session.PurchasedRolls}");
+        ImGui.TextUnformatted($"Remaining: {session.RemainingRolls}");
+
+        ImGui.Spacing();
+
+        if (ImGui.Button("Yes, Reset Session", new System.Numerics.Vector2(160, 0)))
+        {
+            this.plugin.ResetRaffle();
+            ImGui.CloseCurrentPopup();
+        }
+
+        ImGui.SameLine();
+
+        if (ImGui.Button("Cancel", new System.Numerics.Vector2(100, 0)))
+            ImGui.CloseCurrentPopup();
+
+        ImGui.EndPopup();
+    }
+
     private void DrawConfigTab()
     {
         var config = this.plugin.Configuration;
@@ -436,7 +467,7 @@ public sealed class MainWindow : Window, IDisposable
         ImGui.SameLine();
 
         if (ImGui.Button("Reset Session"))
-            this.plugin.ResetRaffle();
+            ImGui.OpenPopup(ResetSessionPopupName);
     }
 
     private void DrawAnnouncementSection(Services.RaffleSession session)
