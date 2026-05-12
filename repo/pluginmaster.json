@@ -3,7 +3,7 @@
     "Author": "AmberFey",
     "Name": "Urban 888",
     "InternalName": "Urban888",
-    "AssemblyVersion": "1.0.0.0",
+    "AssemblyVersion": "0.0.0.1",
     "TestingAssemblyVersion": null,
     "Description": "Tracks paid /random rolls, remaining attempts, incoming sales, total pot, and detects when the target player rolls 888.",
     "ApplicableVersion": "any",
