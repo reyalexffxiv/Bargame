@@ -20,9 +20,11 @@ public sealed class MainWindow : Window, IDisposable
     private readonly Plugin plugin;
 
     private int randomsToAdd = 1;
+    private int saleIndexPendingDelete = -1;
     private string exportStatus = string.Empty;
 
     private const string ClearStatisticsPopupName = "Clear Statistics?";
+    private const string DeleteSalePopupName = "Delete Sale?";
 
     public MainWindow(Plugin plugin)
         : base("Urban 888###Urban888Main")
@@ -30,7 +32,7 @@ public sealed class MainWindow : Window, IDisposable
         this.plugin = plugin;
         this.SizeConstraints = new WindowSizeConstraints
         {
-            MinimumSize = new System.Numerics.Vector2(760, 390),
+            MinimumSize = new System.Numerics.Vector2(820, 390),
             MaximumSize = new System.Numerics.Vector2(float.MaxValue, float.MaxValue)
         };
     }
@@ -114,6 +116,7 @@ public sealed class MainWindow : Window, IDisposable
             this.ExportSalesLedgerToCsv();
 
         this.DrawClearStatisticsConfirmationPopup(session);
+        this.DrawDeleteSaleConfirmationPopup(session);
 
         if (!string.IsNullOrWhiteSpace(this.exportStatus))
         {
@@ -126,7 +129,7 @@ public sealed class MainWindow : Window, IDisposable
 
         if (ImGui.BeginTable(
                 "SalesLedgerTable",
-                4,
+                5,
                 ImGuiTableFlags.Borders |
                 ImGuiTableFlags.RowBg |
                 ImGuiTableFlags.Resizable |
@@ -137,6 +140,7 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.TableSetupColumn("Player");
             ImGui.TableSetupColumn("Randoms", ImGuiTableColumnFlags.WidthFixed, 90);
             ImGui.TableSetupColumn("Gil", ImGuiTableColumnFlags.WidthFixed, 130);
+            ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, 90);
             ImGui.TableHeadersRow();
 
             for (var i = 0; i < config.SalesLedger.Count; i++)
@@ -146,16 +150,23 @@ public sealed class MainWindow : Window, IDisposable
                 ImGui.TableNextRow();
 
                 ImGui.TableSetColumnIndex(0);
-                ImGui.TextUnformatted((i + 1).ToString());
+                ImGui.TextUnformatted((i + 1).ToString(CultureInfo.InvariantCulture));
 
                 ImGui.TableSetColumnIndex(1);
                 ImGui.TextUnformatted(sale.PlayerName);
 
                 ImGui.TableSetColumnIndex(2);
-                ImGui.TextUnformatted(sale.Randoms.ToString());
+                ImGui.TextUnformatted(sale.Randoms.ToString(CultureInfo.InvariantCulture));
 
                 ImGui.TableSetColumnIndex(3);
                 ImGui.TextUnformatted($"{sale.Gil:N0}");
+
+                ImGui.TableSetColumnIndex(4);
+                if (ImGui.SmallButton($"Delete##DeleteSale{i}"))
+                {
+                    this.saleIndexPendingDelete = i;
+                    ImGui.OpenPopup(DeleteSalePopupName);
+                }
             }
 
             ImGui.TableNextRow();
@@ -167,10 +178,13 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.TextUnformatted("TOTAL");
 
             ImGui.TableSetColumnIndex(2);
-            ImGui.TextUnformatted(session.SalesLedgerTotalRandoms.ToString());
+            ImGui.TextUnformatted(session.SalesLedgerTotalRandoms.ToString(CultureInfo.InvariantCulture));
 
             ImGui.TableSetColumnIndex(3);
             ImGui.TextUnformatted($"{session.SalesLedgerTotalGil:N0}");
+
+            ImGui.TableSetColumnIndex(4);
+            ImGui.TextUnformatted("");
 
             ImGui.EndTable();
         }
@@ -199,6 +213,58 @@ public sealed class MainWindow : Window, IDisposable
 
         if (ImGui.Button("Cancel", new System.Numerics.Vector2(100, 0)))
             ImGui.CloseCurrentPopup();
+
+        ImGui.EndPopup();
+    }
+
+    private void DrawDeleteSaleConfirmationPopup(Services.RaffleSession session)
+    {
+        var popupOpen = true;
+
+        if (!ImGui.BeginPopupModal(DeleteSalePopupName, ref popupOpen, ImGuiWindowFlags.AlwaysAutoResize))
+            return;
+
+        var config = this.plugin.Configuration;
+
+        if (this.saleIndexPendingDelete < 0 || this.saleIndexPendingDelete >= config.SalesLedger.Count)
+        {
+            ImGui.TextWrapped("This sale row no longer exists.");
+
+            if (ImGui.Button("Close", new System.Numerics.Vector2(100, 0)))
+            {
+                this.saleIndexPendingDelete = -1;
+                ImGui.CloseCurrentPopup();
+            }
+
+            ImGui.EndPopup();
+            return;
+        }
+
+        var sale = config.SalesLedger[this.saleIndexPendingDelete];
+
+        ImGui.TextWrapped("Delete this sale row?");
+        ImGui.Spacing();
+        ImGui.TextUnformatted($"Player: {sale.PlayerName}");
+        ImGui.TextUnformatted($"Randoms: {sale.Randoms}");
+        ImGui.TextUnformatted($"Gil: {sale.Gil:N0}");
+
+        ImGui.Spacing();
+
+        if (ImGui.Button("Yes, Delete Sale", new System.Numerics.Vector2(150, 0)))
+        {
+            session.RemoveSaleAt(this.saleIndexPendingDelete);
+            this.saleIndexPendingDelete = -1;
+            this.exportStatus = string.Empty;
+            ImGui.CloseCurrentPopup();
+        }
+
+        ImGui.SameLine();
+
+        if (ImGui.Button("Cancel", new System.Numerics.Vector2(100, 0)))
+        {
+            this.saleIndexPendingDelete = -1;
+            ImGui.CloseCurrentPopup();
+        }
 
         ImGui.EndPopup();
     }

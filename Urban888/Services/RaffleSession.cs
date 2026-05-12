@@ -178,10 +178,23 @@ public sealed class RaffleSession
             return;
         }
 
-        var lastIndex = this.configuration.SalesLedger.Count - 1;
-        var sale = this.configuration.SalesLedger[lastIndex];
+        this.RemoveSaleAt(this.configuration.SalesLedger.Count - 1);
+    }
 
-        this.configuration.SalesLedger.RemoveAt(lastIndex);
+    /// <summary>
+    /// Removes one sale row from the statistics ledger and active session.
+    /// </summary>
+    public void RemoveSaleAt(int index)
+    {
+        if (index < 0 || index >= this.configuration.SalesLedger.Count)
+        {
+            this.LastNotice = "Sale could not be removed because the row no longer exists.";
+            return;
+        }
+
+        var sale = this.configuration.SalesLedger[index];
+
+        this.configuration.SalesLedger.RemoveAt(index);
         this.configuration.Save();
 
         this.PurchasedRolls = Math.Max(0, this.PurchasedRolls - sale.Randoms);
@@ -191,7 +204,10 @@ public sealed class RaffleSession
 
         this.IncomingSales = Math.Max(0, this.IncomingSales - sale.Gil);
 
-        this.LastNotice = $"Removed last sale: {sale.Randoms} random(s) for {sale.PlayerName}.";
+        if (this.UsedRolls < this.GetHalfwayThreshold())
+            this.HalfwayNoticeSent = false;
+
+        this.LastNotice = $"Removed sale: {sale.Randoms} random(s) for {sale.PlayerName}.";
     }
 
     /// <summary>
