@@ -39,6 +39,7 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary>
     /// The winning /random value.
     /// Default: 888.
+    /// Normal FFXIV /random rolls are 0 to 999.
     /// </summary>
     public int TargetRoll { get; set; } = 888;
 
@@ -65,6 +66,44 @@ public sealed class Configuration : IPluginConfiguration
     /// Each purchase is stored separately, even when the same player buys again.
     /// </summary>
     public List<RaffleSaleRecord> SalesLedger { get; set; } = new();
+
+    /// <summary>
+    /// Saved active session roll count.
+    /// 
+    /// This survives plugin/game reloads so a live raffle can be continued
+    /// after a crash or Dalamud reload.
+    /// </summary>
+    public int ActiveSessionPurchasedRolls { get; set; }
+
+    /// <summary>
+    /// Saved active session used roll count.
+    /// </summary>
+    public int ActiveSessionUsedRolls { get; set; }
+
+    /// <summary>
+    /// Saved active session sales correction value.
+    /// 
+    /// The visible jackpot uses the saved sales ledger, but this value is kept
+    /// for active-session correction compatibility.
+    /// </summary>
+    public long ActiveSessionIncomingSales { get; set; }
+
+    /// <summary>
+    /// Saved halfway notice state so a reload does not cause duplicate halfway notices.
+    /// </summary>
+    public bool ActiveSessionHalfwayNoticeSent { get; set; }
+
+    /// <summary>
+    /// Whether the session was running when state was last saved.
+    /// 
+    /// On load, Urban 888 intentionally restores as stopped for safety.
+    /// </summary>
+    public bool ActiveSessionWasRunning { get; set; }
+
+    /// <summary>
+    /// Last visible session notice.
+    /// </summary>
+    public string ActiveSessionLastNotice { get; set; } = string.Empty;
 
     [NonSerialized]
     private IDalamudPluginInterface? pluginInterface;

@@ -22,6 +22,7 @@ public sealed class RaffleSession
     public RaffleSession(Configuration configuration)
     {
         this.configuration = configuration;
+        this.RestoreActiveSessionState();
     }
 
     public bool IsRunning { get; private set; }
@@ -66,6 +67,7 @@ public sealed class RaffleSession
         this.WinningRoll = null;
         this.HalfwayNoticeSent = false;
         this.LastNotice = $"Counting started for {this.configuration.TargetPlayerName}.";
+        this.SaveActiveSessionState();
     }
 
     /// <summary>
@@ -74,6 +76,7 @@ public sealed class RaffleSession
     public void Stop()
     {
         this.IsRunning = false;
+        this.SaveActiveSessionState();
     }
 
     /// <summary>
@@ -92,6 +95,7 @@ public sealed class RaffleSession
         this.WinningRoll = null;
         this.HalfwayNoticeSent = false;
         this.LastNotice = "Session reset.";
+        this.SaveActiveSessionState();
     }
 
     /// <summary>
@@ -128,8 +132,6 @@ public sealed class RaffleSession
             CreatedAtLocal = DateTime.Now
         });
 
-        this.configuration.Save();
-
         this.PurchasedRolls += randoms;
         this.IncomingSales += gil;
 
@@ -137,6 +139,8 @@ public sealed class RaffleSession
             this.HalfwayNoticeSent = false;
 
         this.LastNotice = $"{randoms} random(s) added for {cleanPlayerName}.";
+
+        this.SaveActiveSessionState();
     }
 
     /// <summary>
@@ -163,7 +167,9 @@ public sealed class RaffleSession
         this.LastNotice = $"{removableRolls} random(s) removed from active session.";
 
         if (this.RemainingRolls <= 0 && this.PurchasedRolls > 0)
-            this.Stop();
+            this.IsRunning = false;
+
+        this.SaveActiveSessionState();
     }
 
     /// <summary>
@@ -175,6 +181,7 @@ public sealed class RaffleSession
         if (this.configuration.SalesLedger.Count <= 0)
         {
             this.LastNotice = "No sales to remove.";
+            this.SaveActiveSessionState();
             return;
         }
 
@@ -189,13 +196,13 @@ public sealed class RaffleSession
         if (index < 0 || index >= this.configuration.SalesLedger.Count)
         {
             this.LastNotice = "Sale could not be removed because the row no longer exists.";
+            this.SaveActiveSessionState();
             return;
         }
 
         var sale = this.configuration.SalesLedger[index];
 
         this.configuration.SalesLedger.RemoveAt(index);
-        this.configuration.Save();
 
         this.PurchasedRolls = Math.Max(0, this.PurchasedRolls - sale.Randoms);
 
@@ -208,6 +215,8 @@ public sealed class RaffleSession
             this.HalfwayNoticeSent = false;
 
         this.LastNotice = $"Removed sale: {sale.Randoms} random(s) for {sale.PlayerName}.";
+
+        this.SaveActiveSessionState();
     }
 
     /// <summary>
@@ -271,8 +280,9 @@ public sealed class RaffleSession
         {
             if (this.RemainingRolls <= 0)
             {
-                this.Stop();
+                this.IsRunning = false;
                 this.LastNotice = this.BuildFinalNotice();
+                this.SaveActiveSessionState();
                 return RaffleRollProcessResult.RollLimitReached();
             }
 
@@ -287,15 +297,17 @@ public sealed class RaffleSession
             this.LastNotice = $"WINNER: {this.configuration.TargetPlayerName} rolled {roll.Value}! Final pot: {this.TotalPot:N0} gil.";
 
             if (this.configuration.StopWhenWinnerFound)
-                this.Stop();
+                this.IsRunning = false;
 
+            this.SaveActiveSessionState();
             return RaffleRollProcessResult.Winner();
         }
 
         if (isTargetPlayer && this.RemainingRolls <= 0)
         {
-            this.Stop();
+            this.IsRunning = false;
             this.LastNotice = this.BuildFinalNotice();
+            this.SaveActiveSessionState();
             return RaffleRollProcessResult.RollLimitReached();
         }
 
@@ -303,6 +315,7 @@ public sealed class RaffleSession
         {
             this.HalfwayNoticeSent = true;
             this.LastNotice = this.BuildHalfwayNotice();
+            this.SaveActiveSessionState();
             return RaffleRollProcessResult.HalfwayReachedResult();
         }
 
@@ -311,7 +324,45 @@ public sealed class RaffleSession
         else
             this.LastNotice = $"{roll.PlayerName} rolled {roll.Value}. Remaining: {this.RemainingRolls}.";
 
+        this.SaveActiveSessionState();
         return RaffleRollProcessResult.Counted();
+    }
+
+    private void RestoreActiveSessionState()
+    {
+        this.PurchasedRolls = Math.Max(0, this.configuration.ActiveSessionPurchasedRolls);
+        this.UsedRolls = Math.Clamp(this.configuration.ActiveSessionUsedRolls, 0, this.PurchasedRolls);
+        this.IncomingSales = Math.Max(0, this.configuration.ActiveSessionIncomingSales);
+        this.HalfwayNoticeSent = this.configuration.ActiveSessionHalfwayNoticeSent;
+
+        this.IsRunning = false;
+        this.LastRoll = null;
+        this.WinningRoll = null;
+
+        if (this.PurchasedRolls > 0)
+        {
+            this.LastNotice = string.IsNullOrWhiteSpace(this.configuration.ActiveSessionLastNotice)
+                ? "Previous session restored. Press Start Counting to continue."
+                : $"{this.configuration.ActiveSessionLastNotice} Previous session restored stopped for safety.";
+        }
+        else
+        {
+            this.LastNotice = this.configuration.ActiveSessionLastNotice ?? string.Empty;
+        }
+
+        if (this.configuration.ActiveSessionWasRunning)
+            this.SaveActiveSessionState();
+    }
+
+    private void SaveActiveSessionState()
+    {
+        this.configuration.ActiveSessionPurchasedRolls = Math.Max(0, this.PurchasedRolls);
+        this.configuration.ActiveSessionUsedRolls = Math.Clamp(this.UsedRolls, 0, this.PurchasedRolls);
+        this.configuration.ActiveSessionIncomingSales = Math.Max(0, this.IncomingSales);
+        this.configuration.ActiveSessionHalfwayNoticeSent = this.HalfwayNoticeSent;
+        this.configuration.ActiveSessionWasRunning = this.IsRunning;
+        this.configuration.ActiveSessionLastNotice = this.LastNotice ?? string.Empty;
+        this.configuration.Save();
     }
 
     private bool ShouldSendHalfwayNotice()
