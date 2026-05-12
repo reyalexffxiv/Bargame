@@ -1,4 +1,7 @@
 using System;
+using System.Globalization;
+using System.IO;
+using System.Text;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 
@@ -17,6 +20,7 @@ public sealed class MainWindow : Window, IDisposable
     private readonly Plugin plugin;
 
     private int randomsToAdd = 1;
+    private string exportStatus = string.Empty;
 
     private const string ClearStatisticsPopupName = "Clear Statistics?";
 
@@ -104,7 +108,18 @@ public sealed class MainWindow : Window, IDisposable
         if (ImGui.Button("Clear Statistics"))
             ImGui.OpenPopup(ClearStatisticsPopupName);
 
+        ImGui.SameLine();
+
+        if (ImGui.Button("Export CSV"))
+            this.ExportSalesLedgerToCsv();
+
         this.DrawClearStatisticsConfirmationPopup(session);
+
+        if (!string.IsNullOrWhiteSpace(this.exportStatus))
+        {
+            ImGui.Spacing();
+            ImGui.TextWrapped(this.exportStatus);
+        }
 
         ImGui.Spacing();
         ImGui.Separator();
@@ -176,6 +191,7 @@ public sealed class MainWindow : Window, IDisposable
         if (ImGui.Button("Yes, Clear Statistics", new System.Numerics.Vector2(170, 0)))
         {
             session.ClearSalesLedger();
+            this.exportStatus = string.Empty;
             ImGui.CloseCurrentPopup();
         }
 
@@ -380,6 +396,74 @@ public sealed class MainWindow : Window, IDisposable
             this.plugin.SendSayNotice("Urban 888 test message.");
     }
 
+    private void ExportSalesLedgerToCsv()
+    {
+        var config = this.plugin.Configuration;
+        var session = this.plugin.RaffleSession;
+
+        if (config.SalesLedger.Count == 0)
+        {
+            this.exportStatus = "Nothing to export. Sales ledger is empty.";
+            return;
+        }
+
+        try
+        {
+            var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+
+            if (string.IsNullOrWhiteSpace(documentsPath))
+            {
+                this.exportStatus = "CSV export failed: Documents folder could not be found.";
+                return;
+            }
+
+            var exportDirectory = Path.Combine(documentsPath, "Urban888");
+            Directory.CreateDirectory(exportDirectory);
+
+            var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+            var filePath = Path.Combine(exportDirectory, $"Urban888-sales-{timestamp}.csv");
+
+            var csv = new StringBuilder();
+
+            csv.AppendLine("Row,CreatedAtLocal,Player,Randoms,Gil");
+
+            for (var i = 0; i < config.SalesLedger.Count; i++)
+            {
+                var sale = config.SalesLedger[i];
+
+                csv.AppendCsvField((i + 1).ToString(CultureInfo.InvariantCulture));
+                csv.Append(',');
+                csv.AppendCsvField(sale.CreatedAtLocal.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
+                csv.Append(',');
+                csv.AppendCsvField(sale.PlayerName);
+                csv.Append(',');
+                csv.AppendCsvField(sale.Randoms.ToString(CultureInfo.InvariantCulture));
+                csv.Append(',');
+                csv.AppendCsvField(sale.Gil.ToString(CultureInfo.InvariantCulture));
+                csv.AppendLine();
+            }
+
+            csv.AppendCsvField(string.Empty);
+            csv.Append(',');
+            csv.AppendCsvField(string.Empty);
+            csv.Append(',');
+            csv.AppendCsvField("TOTAL");
+            csv.Append(',');
+            csv.AppendCsvField(session.SalesLedgerTotalRandoms.ToString(CultureInfo.InvariantCulture));
+            csv.Append(',');
+            csv.AppendCsvField(session.SalesLedgerTotalGil.ToString(CultureInfo.InvariantCulture));
+            csv.AppendLine();
+
+            File.WriteAllText(filePath, csv.ToString(), Encoding.UTF8);
+
+            this.exportStatus = $"CSV exported to: {filePath}";
+        }
+        catch (Exception ex)
+        {
+            this.exportStatus = $"CSV export failed: {ex.Message}";
+        }
+    }
+
     private static string BuildSayCommand(string notice)
     {
         if (string.IsNullOrWhiteSpace(notice))
@@ -414,5 +498,23 @@ public sealed class MainWindow : Window, IDisposable
 
         if (long.TryParse(valueText, out var parsedValue))
             onChanged(parsedValue);
+    }
+}
+
+internal static class CsvStringBuilderExtensions
+{
+    public static void AppendCsvField(this StringBuilder builder, string value)
+    {
+        builder.Append('"');
+
+        foreach (var character in value)
+        {
+            if (character == '"')
+                builder.Append("\"\"");
+            else
+                builder.Append(character);
+        }
+
+        builder.Append('"');
     }
 }
