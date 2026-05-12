@@ -1,0 +1,32 @@
+[
+  {
+    "Author": "AmberFey",
+    "Name": "Urban 888",
+    "InternalName": "Urban888",
+    "AssemblyVersion": "1.0.0.0",
+    "TestingAssemblyVersion": null,
+    "Description": "Tracks paid /random rolls, remaining attempts, incoming sales, total pot, and detects when the target player rolls 888.",
+    "ApplicableVersion": "any",
+    "RepoUrl": "https://github.com/AmberFey/Urban888",
+    "Tags": [
+      "raffle",
+      "random",
+      "urban",
+      "888"
+    ],
+    "DalamudApiLevel": 15,
+    "LoadRequiredState": 0,
+    "LoadSync": false,
+    "LoadPriority": 0,
+    "Punchline": "Raffle counter for /random 888 games.",
+    "AcceptsFeedback": false,
+    "IsHide": false,
+    "IsTestingExclusive": false,
+    "DownloadCount": 0,
+    "DownloadLinkInstall": "https://raw.githubusercontent.com/AmberFey/Urban888/master/repo/Urban888.zip",
+    "DownloadLinkTesting": null,
+    "DownloadLinkUpdate": "https://raw.githubusercontent.com/AmberFey/Urban888/master/repo/Urban888.zip",
+    "LastUpdate": "1765490000",
+    "Changelog": "Initial custom repository build."
+  }
+]
