@@ -161,7 +161,6 @@ public sealed class MainWindow : Window, IDisposable
         }
     }
 
-
     private void DrawClearStatisticsConfirmationPopup(Services.RaffleSession session)
     {
         var popupOpen = true;
@@ -219,9 +218,11 @@ public sealed class MainWindow : Window, IDisposable
             config.TargetRoll,
             value =>
             {
-                config.TargetRoll = Math.Max(1, value);
+                config.TargetRoll = Math.Clamp(value, 0, 999);
                 config.Save();
             });
+
+        ImGui.TextDisabled("Normal /random rolls are 0 to 999.");
 
         ImGui.Spacing();
         ImGui.Separator();
