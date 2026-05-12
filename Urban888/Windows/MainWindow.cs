@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -22,6 +23,8 @@ public sealed class MainWindow : Window, IDisposable
     private int randomsToAdd = 1;
     private int saleIndexPendingDelete = -1;
     private string exportStatus = string.Empty;
+    private string lastExportFilePath = string.Empty;
+    private string lastExportDirectory = string.Empty;
 
     private const string ClearStatisticsPopupName = "Clear Statistics?";
     private const string DeleteSalePopupName = "Delete Sale?";
@@ -116,6 +119,16 @@ public sealed class MainWindow : Window, IDisposable
 
         if (ImGui.Button("Export CSV"))
             this.ExportSalesLedgerToCsv();
+
+        ImGui.SameLine();
+
+        if (ImGui.Button("Open Export Folder"))
+            this.OpenExportFolder();
+
+        ImGui.SameLine();
+
+        if (ImGui.Button("Copy Export Path"))
+            this.CopyExportPath();
 
         this.DrawClearStatisticsConfirmationPopup(session);
         this.DrawDeleteSaleConfirmationPopup(session);
@@ -553,12 +566,59 @@ public sealed class MainWindow : Window, IDisposable
 
             File.WriteAllText(filePath, csv.ToString(), Encoding.UTF8);
 
+            this.lastExportDirectory = exportDirectory;
+            this.lastExportFilePath = filePath;
             this.exportStatus = $"CSV exported to: {filePath}";
         }
         catch (Exception ex)
         {
             this.exportStatus = $"CSV export failed: {ex.Message}";
         }
+    }
+
+    private void OpenExportFolder()
+    {
+        try
+        {
+            var directory = this.GetExportDirectory();
+
+            Directory.CreateDirectory(directory);
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = directory,
+                UseShellExecute = true
+            });
+
+            this.exportStatus = $"Opened export folder: {directory}";
+        }
+        catch (Exception ex)
+        {
+            this.exportStatus = $"Could not open export folder: {ex.Message}";
+        }
+    }
+
+    private void CopyExportPath()
+    {
+        var path = !string.IsNullOrWhiteSpace(this.lastExportFilePath)
+            ? this.lastExportFilePath
+            : this.GetExportDirectory();
+
+        ImGui.SetClipboardText(path);
+        this.exportStatus = $"Copied export path: {path}";
+    }
+
+    private string GetExportDirectory()
+    {
+        if (!string.IsNullOrWhiteSpace(this.lastExportDirectory))
+            return this.lastExportDirectory;
+
+        var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+
+        if (string.IsNullOrWhiteSpace(documentsPath))
+            throw new InvalidOperationException("Documents folder could not be found.");
+
+        return Path.Combine(documentsPath, "Urban888");
     }
 
     private static string BuildSayCommand(string notice)
