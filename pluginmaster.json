@@ -3,7 +3,7 @@
     "Author": "ReyAlex",
     "Name": "Bar Game",
     "InternalName": "BarGame",
-    "AssemblyVersion": "1.0.0.0",
+    "AssemblyVersion": "1.0.1.0",
     "Punchline": "Venue bar-game helper for /random jackpot games.",
     "Description": "Host /random jackpot games with automatic roll counting, quick sales, announcements and sales history.",
     "ApplicableVersion": "any",
@@ -16,8 +16,9 @@
       "random",
       "jackpot"
     ],
-    "DownloadLinkInstall": "https://github.com/reyalexffxiv/Bargame/releases/download/1.0b/BarGame-v1.0.0-beta.zip",
-    "DownloadLinkUpdate": "https://github.com/reyalexffxiv/Bargame/releases/download/1.0b/BarGame-v1.0.0-beta.zip",
-    "DownloadLinkTesting": "https://github.com/reyalexffxiv/Bargame/releases/download/1.0b/BarGame-v1.0.0-beta.zip"
+    "IconUrl": "https://raw.githubusercontent.com/reyalexffxiv/ReyPlugins/main/cutepeeposit.png",
+    "DownloadLinkInstall": "https://github.com/reyalexffxiv/Bargame/releases/download/1.0.1b/BarGame-v1.0.1-beta.zip",
+    "DownloadLinkUpdate": "https://github.com/reyalexffxiv/Bargame/releases/download/1.0.1b/BarGame-v1.0.1-beta.zip",
+    "DownloadLinkTesting": "https://github.com/reyalexffxiv/Bargame/releases/download/1.0.1b/BarGame-v1.0.1-beta.zip"
   }
 ]
