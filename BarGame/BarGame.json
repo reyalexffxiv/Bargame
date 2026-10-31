@@ -11,5 +11,7 @@
     "random",
     "jackpot"
   ],
-  "AssemblyVersion": "1.0.0.0"
+  "AssemblyVersion": "1.0.0.0",
+  "IconUrl": "https://raw.githubusercontent.com/reyalexffxiv/ReyPlugins/main/cutepeeposit.png",
+  "RepoUrl": "https://github.com/reyalexffxiv/Bargame"
 }
