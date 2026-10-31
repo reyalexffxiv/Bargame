@@ -22,3 +22,6 @@ latest.zip
 .env.*
 *.pfx
 *.snk
+
+/scripts/
+/.github/workflows/
