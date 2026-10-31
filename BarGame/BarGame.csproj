@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
     <PropertyGroup>
-        <Version>1.0.0-beta</Version>
-        <AssemblyVersion>1.0.0.0</AssemblyVersion>
+        <Version>1.0.1-beta</Version>
+        <AssemblyVersion>1.0.1.0</AssemblyVersion>
         <AssemblyName>BarGame</AssemblyName>
         <RootNamespace>BarGame</RootNamespace>
         <PackageProjectUrl>https://github.com/reyalexffxiv/BarGame</PackageProjectUrl>
