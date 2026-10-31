@@ -1,4 +1,24 @@
+# Build products and generated packages
+**/bin/
+**/obj/
+dist/
+release/
+*.nupkg
+
+# Local IDE and operating-system state
 .vs/
-obj/
-bin/
+.idea/
+.vscode/
 *.user
+*.suo
+*.DotSettings.user
+.DS_Store
+Thumbs.db
+
+# Downloaded SDK/runtime and local-only environment
+latest.zip
+*.log
+.env
+.env.*
+*.pfx
+*.snk

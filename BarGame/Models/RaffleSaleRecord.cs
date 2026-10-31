@@ -1,6 +1,6 @@
 using System;
 
-namespace Urban888.Models;
+namespace BarGame.Models;
 
 /// <summary>
 /// One raffle sale entry.

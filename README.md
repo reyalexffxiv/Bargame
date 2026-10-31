@@ -1,28 +1,26 @@
-# Urban 888
+# BarGame 1.0b
 
-Urban 888 is a Dalamud plugin for running FFXIV venue raffles.
+A [Dalamud](https://github.com/goatcorp/Dalamud) plugin for hosting... well.. bargame :)
 
-The plugin tracks paid `/random` attempts for a configured target player. Each purchase adds gil to the saved sales ledger and jackpot, and the target player wins when they roll the configured winning number, default `888`.
+## Install
 
-## Current features
-
-- Main, Statistics, and Config tabs.
-- Target-player raffle tracking.
-- Saved sales ledger with one row per sale.
-- Configurable base pot, price per random, and winning random.
-- Optional target-only roll counting.
-- Optional stop when winner is found.
-- Optional `/say` notices for halfway and final roll notices.
-- Shout game advertisement using the configured price.
-
-## Development
-
-Open `Urban888.sln` in Visual Studio or Rider.
-
-Build output is created under:
+Add this URL in Dalamud **Settings → Experimental → Custom Plugin Repositories**:
 
 ```text
-Urban888/bin/x64/Debug/
+https://raw.githubusercontent.com/reyalexffxiv/Bargame/master/pluginmaster.json
 ```
 
-For local Dalamud testing, add the built plugin DLL from the output folder to Dalamud Dev Plugin Locations.
+Save/refresh, then install **BarGame** in the plugin installer.
+
+Open with `/bargame`.
+
+## Features
+
+- Automatic `/random` tracking and jackpot management.
+- Quick player sales through compact mode.
+- Customizable game rules and announcements.
+- Sales history and CSV export.
+
+## License
+
+AGPL-3.0-or-later — see [LICENSE.md](LICENSE.md). Attribution is in [NOTICE.md](NOTICE.md).

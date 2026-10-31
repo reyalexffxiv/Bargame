@@ -1,0 +1,15 @@
+{
+  "Author": "ReyAlex",
+  "Name": "Bar Game",
+  "Punchline": "Venue bar-game helper for /random jackpot games.",
+  "Description": "Tracks paid /random rolls, remaining attempts, sales, jackpot, roll history, editable notices, and winning target rolls for bar-style venue games.",
+  "ApplicableVersion": "any",
+  "Tags": [
+    "venue",
+    "bar",
+    "raffle",
+    "random",
+    "jackpot"
+  ],
+  "AssemblyVersion": "1.0.0.0"
+}
